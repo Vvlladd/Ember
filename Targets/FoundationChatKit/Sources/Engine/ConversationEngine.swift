@@ -6,15 +6,34 @@ import Observation
 @MainActor
 @Observable
 public final class ConversationEngine {
+    /// Closures the app injects to durably persist a turn as it happens.
+    public struct ConversationPersistence {
+        public var recordMessage: @MainActor (ChatMessage) -> Void
+        public var recordResumeState: @MainActor (_ encodedTranscript: Data?, _ usedTokens: Int) -> Void
+        public init(
+            recordMessage: @escaping @MainActor (ChatMessage) -> Void,
+            recordResumeState: @escaping @MainActor (_ encodedTranscript: Data?, _ usedTokens: Int) -> Void
+        ) {
+            self.recordMessage = recordMessage
+            self.recordResumeState = recordResumeState
+        }
+    }
+
     public private(set) var messages: [ChatMessage] = []
     public internal(set) var isResponding: Bool = false
     public private(set) var budget: TokenBudgetSnapshot
     public private(set) var lastError: ChatError?
 
+    /// The exact context window currently held by the model session (drives the inspector).
+    public var contextEntries: [ContextEntry] { session.contextEntries }
+    /// Encoded transcript for fast/faithful resume (nil if the provider doesn't support it).
+    public var encodedTranscript: Data? { session.encodedTranscript() }
+
     private let provider: any ChatModelProvider
     private var session: any ChatSessionHandle
     private var settings: GenerationSettings
     private let calculator: TokenBudgetCalculator
+    private let persistence: ConversationPersistence?
     private let now: () -> Date
     private var turnTask: Task<Void, Never>?
 
@@ -22,14 +41,23 @@ public final class ConversationEngine {
         provider: any ChatModelProvider,
         settings: GenerationSettings = GenerationSettings(),
         restoring encodedTranscript: Data? = nil,
+        restoringEntries: [ContextEntry]? = nil,
+        persistence: ConversationPersistence? = nil,
         calculator: TokenBudgetCalculator = TokenBudgetCalculator(),
         now: @escaping () -> Date = Date.init
     ) {
         self.provider = provider
         self.settings = settings
         self.calculator = calculator
+        self.persistence = persistence
         self.now = now
-        self.session = provider.makeSession(settings: settings, restoring: encodedTranscript)
+        if let encodedTranscript {
+            self.session = provider.makeSession(settings: settings, restoring: encodedTranscript)
+        } else if let restoringEntries, !restoringEntries.isEmpty {
+            self.session = provider.makeSession(settings: settings, seeding: restoringEntries)
+        } else {
+            self.session = provider.makeSession(settings: settings, restoring: nil)
+        }
         self.budget = TokenBudgetSnapshot(maxTokens: provider.maxContextTokens, usedTokens: 0, isExact: false, lines: [])
         self.messages = ContextProjection.bubbles(from: session.contextEntries, now: now)
         recomputeBudget(inFlight: nil)
@@ -50,7 +78,10 @@ public final class ConversationEngine {
         isResponding = true
         defer { isResponding = false }
 
-        messages.append(ChatMessage(role: .user, text: prompt, createdAt: now()))
+        let userMessage = ChatMessage(role: .user, text: prompt, createdAt: now())
+        messages.append(userMessage)
+        persistence?.recordMessage(userMessage)
+
         let assistant = ChatMessage(role: .assistant, text: "", createdAt: now(), isStreaming: true)
         messages.append(assistant)
         let assistantIndex = messages.count - 1
@@ -63,11 +94,20 @@ public final class ConversationEngine {
             }
             if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
             recomputeBudget(inFlight: nil)
+            finalizeAssistant(at: assistantIndex)
         } catch is CancellationError {
             if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
+            finalizeAssistant(at: assistantIndex)
         } catch {
             handle(error, assistantIndex: assistantIndex)
         }
+    }
+
+    private func finalizeAssistant(at index: Int) {
+        guard index < messages.count, messages[index].role == .assistant else { return }
+        let final = messages[index]
+        if !final.text.isEmpty { persistence?.recordMessage(final) }
+        persistence?.recordResumeState(session.encodedTranscript(), budget.usedTokens)
     }
 
     private func handle(_ error: Error, assistantIndex: Int) {
@@ -89,14 +129,16 @@ public final class ConversationEngine {
     private func recoverFromOverflow() {
         let condensed = OverflowRecovery.condense(session.contextEntries)
         session = provider.makeSession(settings: settings, seeding: condensed)
-        messages.append(ChatMessage(role: .systemNotice,
-                                    text: "Context window was full — older turns were compacted to keep the chat going.",
-                                    createdAt: now()))
+        let notice = ChatMessage(role: .systemNotice,
+                                 text: "Context window was full — older turns were compacted to keep the chat going.",
+                                 createdAt: now())
+        messages.append(notice)
+        persistence?.recordMessage(notice)
         recomputeBudget(inFlight: nil)
+        persistence?.recordResumeState(session.encodedTranscript(), budget.usedTokens)
     }
 
     private func recomputeBudget(inFlight: String?) {
-        // Capture provider reference on MainActor before entering the synchronous closure
         let providerRef = provider
         budget = calculator.snapshot(
             maxTokens: providerRef.maxContextTokens,

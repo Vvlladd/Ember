@@ -30,7 +30,13 @@ let project = Project(
             product: .app,
             bundleId: "dev.iosunpi.ember",
             deploymentTargets: deployment,
-            infoPlist: .file(path: "Targets/Ember/Resources/Ember-Info.plist"),
+            infoPlist: .extendingDefault(with: [
+                "CFBundleDisplayName": "Ember",
+                "CFBundleShortVersionString": "0.1",
+                "CFBundleVersion": "1",
+                "LSApplicationCategoryType": "public.app-category.developer-tools",
+                "UILaunchScreen": [:],
+            ]),
             sources: ["Targets/Ember/Sources/**"],
             resources: ["Targets/Ember/Resources/**"],
             dependencies: [.target(name: "FoundationChatKit")]
