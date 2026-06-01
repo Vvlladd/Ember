@@ -3,10 +3,13 @@ import Foundation
 public enum BudgetZone: Sendable, Equatable { case green, amber, red }
 
 public struct BudgetLine: Identifiable, Sendable, Equatable {
-    public let id: UUID
+    /// Stable position index within the snapshot. Using a positional id (not a random
+    /// UUID) keeps `TokenBudgetSnapshot` Equatable meaningful and keeps SwiftUI `ForEach`
+    /// rows stable across the per-token budget recomputes during streaming.
+    public let id: Int
     public var label: String
     public var tokens: Int
-    public init(id: UUID = UUID(), label: String, tokens: Int) {
+    public init(id: Int, label: String, tokens: Int) {
         self.id = id; self.label = label; self.tokens = tokens
     }
 }

@@ -18,14 +18,17 @@ public struct TokenBudgetCalculator: Sendable {
             return estimator.estimate(text)
         }
         var lines: [BudgetLine] = []
+        func add(_ label: String, _ text: String) {
+            lines.append(BudgetLine(id: lines.count, label: label, tokens: count(text)))
+        }
         if let instructions, !instructions.isEmpty {
-            lines.append(BudgetLine(label: "Instructions", tokens: count(instructions)))
+            add("Instructions", instructions)
         }
         for entry in entries {
-            lines.append(BudgetLine(label: Self.label(for: entry.kind), tokens: count(entry.text)))
+            add(Self.label(for: entry.kind), entry.text)
         }
         if let inFlight, !inFlight.isEmpty {
-            lines.append(BudgetLine(label: "Assistant (typing\u{2026})", tokens: count(inFlight)))
+            add("Assistant (typing\u{2026})", inFlight)
         }
         let used = lines.reduce(0) { $0 + $1.tokens }
         return TokenBudgetSnapshot(maxTokens: maxTokens, usedTokens: used, isExact: isExact, lines: lines)

@@ -33,6 +33,18 @@ struct TokenBudgetCalculatorTests {
         #expect(snap.usedTokens == 10)
     }
 
+    @Test func identicalInputsProduceEqualSnapshotsWithStableIDs() {
+        let calc = TokenBudgetCalculator(estimator: TokenEstimator())
+        let entries = [
+            ContextEntry(kind: .userPrompt, text: "abcd"),
+            ContextEntry(kind: .modelResponse, text: "ef"),
+        ]
+        let a = calc.snapshot(maxTokens: 4096, instructions: "xyz", entries: entries, inFlight: nil, exactCount: oneTokenPerChar)
+        let b = calc.snapshot(maxTokens: 4096, instructions: "xyz", entries: entries, inFlight: nil, exactCount: oneTokenPerChar)
+        #expect(a == b)                              // stable positional ids make Equatable meaningful
+        #expect(a.lines.map(\.id) == [0, 1, 2])
+    }
+
     @Test func zoneThresholds() {
         let calc = TokenBudgetCalculator(estimator: TokenEstimator())
         func zone(used: Int) -> BudgetZone {
