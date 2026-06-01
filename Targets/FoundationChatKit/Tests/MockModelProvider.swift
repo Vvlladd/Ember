@@ -67,4 +67,8 @@ final class MockModelProvider: ChatModelProvider {
 
     func tokenCount(for text: String) -> Int? { exactCounts ? text.count : nil }
     func makeSession(settings: GenerationSettings, restoring encodedTranscript: Data?) -> any ChatSessionHandle { session }
+    func makeSession(settings: GenerationSettings, seeding entries: [ContextEntry]) -> any ChatSessionHandle {
+        session.contextEntries = entries
+        return session
+    }
 }

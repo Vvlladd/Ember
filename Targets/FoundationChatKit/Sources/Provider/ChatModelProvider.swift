@@ -24,4 +24,7 @@ public protocol ChatModelProvider: AnyObject {
     /// Exact token count for `text` (26.4+); nil when unavailable -> caller estimates.
     func tokenCount(for text: String) -> Int?
     func makeSession(settings: GenerationSettings, restoring encodedTranscript: Data?) -> any ChatSessionHandle
+    /// Create a fresh session seeded with the given (already condensed) entries as its
+    /// starting context. Used to recover from a context-window overflow.
+    func makeSession(settings: GenerationSettings, seeding entries: [ContextEntry]) -> any ChatSessionHandle
 }

@@ -31,8 +31,15 @@ struct ConversationEngineTests {
         #expect(engine.budget.isExact == true)
     }
 
-    @Test func overflowTriggersRecoveryAndNotice() async {
+    @Test func overflowSeedsNewSessionFromCondensedEntries() async {
         let provider = MockModelProvider()
+        provider.session.contextEntries = [
+            ContextEntry(kind: .userPrompt, text: "first"),
+            ContextEntry(kind: .modelResponse, text: "a"),
+            ContextEntry(kind: .userPrompt, text: "b"),
+            ContextEntry(kind: .modelResponse, text: "last"),
+        ]
+        provider.session.commitsEntriesOnFinish = false
         provider.session.scriptedSnapshots = ["partial"]
         provider.session.scriptedError = ChatError.contextOverflow
         provider.session.errorAfter = 1
@@ -40,6 +47,18 @@ struct ConversationEngineTests {
         await engine.send("hi")
         #expect(engine.messages.contains { $0.role == .systemNotice })
         #expect(engine.lastError == nil)
+        // Recovery actually reduced context to the condensed first+last entries.
+        #expect(provider.session.contextEntries.map(\.text) == ["first", "last"])
+    }
+
+    @Test func cancelAfterCompletionIsSafe() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["done"]
+        let engine = makeEngine(provider)
+        await engine.send("hi")
+        engine.cancel()
+        #expect(engine.isResponding == false)
+        #expect(engine.messages.last?.text == "done")
     }
 
     @Test func guardrailErrorIsSurfaced() async {

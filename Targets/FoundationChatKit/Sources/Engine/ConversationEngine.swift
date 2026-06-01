@@ -38,30 +38,37 @@ public final class ConversationEngine {
     public func send(_ text: String) async {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty, !isResponding else { return }
+        let task = Task { await self.performTurn(prompt) }
+        turnTask = task
+        await task.value
+    }
+
+    public func cancel() { turnTask?.cancel() }
+
+    private func performTurn(_ prompt: String) async {
         lastError = nil
         isResponding = true
+        defer { isResponding = false }
 
         messages.append(ChatMessage(role: .user, text: prompt, createdAt: now()))
-        var assistant = ChatMessage(role: .assistant, text: "", createdAt: now(), isStreaming: true)
+        let assistant = ChatMessage(role: .assistant, text: "", createdAt: now(), isStreaming: true)
         messages.append(assistant)
         let assistantIndex = messages.count - 1
 
         do {
             for try await snapshot in session.stream(prompt: prompt) {
-                assistant.text = snapshot
-                messages[assistantIndex] = assistant
+                if Task.isCancelled { break }
+                messages[assistantIndex].text = snapshot
                 recomputeBudget(inFlight: snapshot)
             }
-            assistant.isStreaming = false
-            messages[assistantIndex] = assistant
+            if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
             recomputeBudget(inFlight: nil)
+        } catch is CancellationError {
+            if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
         } catch {
             handle(error, assistantIndex: assistantIndex)
         }
-        isResponding = false
     }
-
-    public func cancel() { turnTask?.cancel() }
 
     private func handle(_ error: Error, assistantIndex: Int) {
         if assistantIndex < messages.count, messages[assistantIndex].role == .assistant,
@@ -81,11 +88,10 @@ public final class ConversationEngine {
 
     private func recoverFromOverflow() {
         let condensed = OverflowRecovery.condense(session.contextEntries)
-        session = provider.makeSession(settings: settings, restoring: session.encodedTranscript())
+        session = provider.makeSession(settings: settings, seeding: condensed)
         messages.append(ChatMessage(role: .systemNotice,
                                     text: "Context window was full — older turns were compacted to keep the chat going.",
                                     createdAt: now()))
-        _ = condensed
         recomputeBudget(inFlight: nil)
     }
 
