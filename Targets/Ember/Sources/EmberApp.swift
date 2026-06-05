@@ -13,8 +13,11 @@ struct EmberApp: App {
         } catch {
             fatalError("Could not create the Ember data store: \(error)")
         }
-        let store = ConversationStore(context: ModelContext(container))
-        _coordinator = State(initialValue: ChatCoordinator(provider: FoundationModelProvider(), store: store))
+        let context = ModelContext(container)
+        let store = ConversationStore(context: context)
+        let memory = MemoryStore(context: context, embedder: NLTextEmbedder())
+        _coordinator = State(initialValue: ChatCoordinator(provider: FoundationModelProvider(),
+                                                           store: store, memory: memory))
     }
 
     var body: some Scene {

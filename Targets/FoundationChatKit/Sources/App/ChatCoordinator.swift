@@ -19,6 +19,7 @@ public final class ChatCoordinator {
     private let settings: GenerationSettings
     private let modelVersionTag: String
     private let now: () -> Date
+    private let memory: MemoryStore?
 
     public init(
         provider: any ChatModelProvider,
@@ -26,6 +27,7 @@ public final class ChatCoordinator {
         settings: GenerationSettings = GenerationSettings(
             instructions: "You are Ember, a helpful, concise on-device assistant. Keep answers short."),
         modelVersionTag: String = ProcessInfo.processInfo.operatingSystemVersionString,
+        memory: MemoryStore? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.provider = provider
@@ -34,6 +36,8 @@ public final class ChatCoordinator {
         self.modelVersionTag = modelVersionTag
         self.now = now
         self.availability = provider.availability
+        self.memory = memory
+        memory?.backfill()
         reload()
     }
 
@@ -114,6 +118,9 @@ public final class ChatCoordinator {
             }
         }
         reload()
+        if let memory {
+            for message in convo.orderedMessages { memory.index(message) }
+        }
     }
 
     private func makeEngine(for convo: Conversation) -> ConversationEngine {
@@ -128,12 +135,19 @@ public final class ChatCoordinator {
             }
         )
         let canUseTranscript = convo.transcriptData != nil && convo.modelVersionTag == tag
+        var tools = Toolbox.defaultTools()
+        if let memory {
+            let excluded = Set(convo.orderedMessages.map(\.id))
+            tools.append(MemorySearchTool(embedder: memory.embedder,
+                                          snapshot: memory.snapshot(),
+                                          excludedIDs: excluded))
+        }
         return ConversationEngine(
             provider: provider,
             settings: settings,
             restoring: canUseTranscript ? convo.transcriptData : nil,
             restoringEntries: canUseTranscript ? nil : store.contextEntries(for: convo),
-            tools: Toolbox.defaultTools(),
+            tools: tools,
             persistence: persistence,
             now: now
         )
