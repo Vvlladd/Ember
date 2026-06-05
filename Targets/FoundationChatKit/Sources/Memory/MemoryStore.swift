@@ -43,7 +43,8 @@ public final class MemoryStore {
     }
 
     /// Pure brute-force cosine top-k over a snapshot; drops excluded ids and scores below `threshold`.
-    public static func search(_ snapshot: [MemoryRecord], queryVector: [Float],
+    /// `nonisolated` so off-actor callers (e.g. `MemorySearchTool`) can run it without an actor hop.
+    public nonisolated static func search(_ snapshot: [MemoryRecord], queryVector: [Float],
                               topK: Int = 3, threshold: Float = 0.2,
                               excludingMessageIDs excluded: Set<UUID> = []) -> [MemoryHit] {
         snapshot
