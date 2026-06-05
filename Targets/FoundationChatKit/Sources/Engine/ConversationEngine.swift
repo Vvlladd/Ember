@@ -101,9 +101,11 @@ public final class ConversationEngine {
             if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
             recomputeBudget(inFlight: nil)
             finalizeAssistant(at: assistantIndex)
+            await refreshExactBudget()
         } catch is CancellationError {
             if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
             finalizeAssistant(at: assistantIndex)
+            await refreshExactBudget()
         } catch {
             handle(error, assistantIndex: assistantIndex)
         }
@@ -153,6 +155,30 @@ public final class ConversationEngine {
             inFlight: inFlight,
             tools: toolAccounting,
             exactCount: { text in providerRef.tokenCount(for: text) }
+        )
+    }
+
+    /// Recompute the budget using exact async token counts (26.4+). Reuses the synchronous
+    /// snapshot with a prefilled cache, so there is no duplicated budget logic. Called after a
+    /// turn completes; live typing keeps the estimator. Falls back to estimates per-string when
+    /// the exact API is unavailable.
+    public func refreshExactBudget() async {
+        let providerRef = provider
+        var cache: [String: Int] = [:]
+        func fill(_ s: String) async {
+            guard !s.isEmpty, cache[s] == nil else { return }
+            if let n = await providerRef.exactTokenCount(for: s) { cache[s] = n }
+        }
+        if let instructions = settings.instructions { await fill(instructions) }
+        for entry in session.contextEntries { await fill(entry.text) }
+        for tool in toolAccounting { await fill(tool.schemaDigest) }
+        budget = calculator.snapshot(
+            maxTokens: providerRef.maxContextTokens,
+            instructions: settings.instructions,
+            entries: session.contextEntries,
+            inFlight: nil,
+            tools: toolAccounting,
+            exactCount: { cache[$0] }
         )
     }
 }

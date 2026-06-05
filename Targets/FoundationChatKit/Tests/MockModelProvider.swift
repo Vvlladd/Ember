@@ -70,11 +70,15 @@ final class MockModelProvider: ChatModelProvider {
     var availability: ModelAvailability = .available
     var maxContextTokens: Int = 4096
     var exactCounts: Bool = false
+    var exactAsyncCount: Bool = false
     let session = MockSessionHandle()
     var recordedTools: [any Tool] = []
     var titleResult: String?
 
     func tokenCount(for text: String) -> Int? { exactCounts ? text.count : nil }
+    func exactTokenCount(for text: String) async -> Int? {
+        (exactCounts || exactAsyncCount) ? text.count : nil
+    }
     func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle {
         recordedTools = tools
         return session

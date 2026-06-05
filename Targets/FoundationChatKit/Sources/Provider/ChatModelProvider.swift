@@ -34,6 +34,8 @@ public protocol ChatModelProvider: AnyObject {
     var maxContextTokens: Int { get }
     /// Exact token count for `text` (26.4+); nil when unavailable -> caller estimates.
     func tokenCount(for text: String) -> Int?
+    /// Exact token count for `text` via the async SDK API (26.4+); nil when unavailable.
+    func exactTokenCount(for text: String) async -> Int?
     func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle
     /// Create a fresh session seeded with the given (already condensed) entries as its
     /// starting context. Used to recover from a context-window overflow.

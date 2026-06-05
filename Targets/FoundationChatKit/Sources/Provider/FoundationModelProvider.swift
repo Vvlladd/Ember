@@ -36,6 +36,13 @@ public final class FoundationModelProvider: ChatModelProvider {
         nil
     }
 
+    public func exactTokenCount(for text: String) async -> Int? {
+        if #available(iOS 26.4, macOS 26.4, *) {
+            return try? await model.tokenCount(for: text)
+        }
+        return nil
+    }
+
     public func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle {
         let session: LanguageModelSession
         if let data = encodedTranscript,
