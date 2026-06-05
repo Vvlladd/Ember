@@ -54,4 +54,21 @@ struct TokenBudgetCalculatorTests {
         #expect(zone(used: 75) == .amber)
         #expect(zone(used: 95) == .red)
     }
+
+    @Test func includesToolDefinitionLines() {
+        let calc = TokenBudgetCalculator()
+        let tools = [ToolAccounting(name: "calculator", schemaDigest: "calculator evaluate math expression")]
+        let snapshot = calc.snapshot(
+            maxTokens: 4096,
+            instructions: "sys",
+            entries: [ContextEntry(kind: .userPrompt, text: "hi")],
+            inFlight: nil,
+            tools: tools,
+            exactCount: { _ in nil }
+        )
+        #expect(snapshot.lines.contains { $0.label == "Tool: calculator" })
+        let toolLine = snapshot.lines.first { $0.label == "Tool: calculator" }!
+        #expect(toolLine.tokens > 0)
+        #expect(snapshot.usedTokens == snapshot.lines.reduce(0) { $0 + $1.tokens })
+    }
 }

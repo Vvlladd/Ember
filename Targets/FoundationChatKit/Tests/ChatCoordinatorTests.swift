@@ -56,4 +56,33 @@ struct ChatCoordinatorTests {
         #expect(coord.conversations.isEmpty)
         #expect(coord.engine == nil)
     }
+
+    @Test func firstExchangeAppliesGeneratedTitle() async throws {
+        let (coord, provider) = try make()
+        provider.session.scriptedSnapshots = ["Sure, here's a plan."]
+        provider.titleResult = "Weekend Trip Plan"
+        coord.newConversation()
+        await coord.send("help me plan a weekend trip")
+        #expect(coord.conversations.first?.title == "Weekend Trip Plan")
+    }
+
+    @Test func nilTitleKeepsDeterministicTitle() async throws {
+        let (coord, provider) = try make()
+        provider.session.scriptedSnapshots = ["ok"]
+        provider.titleResult = nil
+        coord.newConversation()
+        await coord.send("hello there friend")
+        #expect(coord.conversations.first?.title == "hello there friend")
+    }
+
+    @Test func titleNotRegeneratedOnSecondTurn() async throws {
+        let (coord, provider) = try make()
+        provider.session.scriptedSnapshots = ["a"]
+        provider.titleResult = "First Title"
+        coord.newConversation()
+        await coord.send("first message")
+        provider.titleResult = "Second Title"
+        await coord.send("second message")
+        #expect(coord.conversations.first?.title == "First Title")
+    }
 }

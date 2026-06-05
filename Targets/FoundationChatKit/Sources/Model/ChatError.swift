@@ -8,5 +8,6 @@ public enum ChatError: Error, Sendable, Equatable {
     case modelUnavailable
     case decodingFailure
     case cancelled
+    case toolFailed(tool: String, message: String?)
     case unknown(String)
 }

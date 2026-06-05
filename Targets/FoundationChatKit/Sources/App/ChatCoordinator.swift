@@ -64,9 +64,24 @@ public final class ChatCoordinator {
     }
 
     public func send(_ text: String) async {
-        guard let engine else { return }
+        guard let engine,
+              let id = selectedID,
+              let convo = conversations.first(where: { $0.id == id }) else { return }
+        let isFirstExchange = convo.orderedMessages.isEmpty
         await engine.send(text)
-        reload()
+        // Generate a title only after a genuinely completed first exchange: no error and a
+        // non-empty assistant reply. (An errored/empty first turn keeps the deterministic title.)
+        if isFirstExchange,
+           engine.lastError == nil,
+           let assistantText = engine.messages.last(where: { $0.role == .assistant })?.text,
+           !assistantText.isEmpty {
+            let seed = TitleSeed(userText: text, assistantText: assistantText)
+            if let title = await provider.generateTitle(forFirstExchange: seed),
+               conversations.contains(where: { $0.id == id }) {   // not deleted during the await
+                store.setTitle(title, for: convo)
+            }
+        }
+        reload()   // title/updatedAt may have changed
     }
 
     private func makeEngine(for convo: Conversation) -> ConversationEngine {
@@ -86,6 +101,7 @@ public final class ChatCoordinator {
             settings: settings,
             restoring: canUseTranscript ? convo.transcriptData : nil,
             restoringEntries: canUseTranscript ? nil : store.contextEntries(for: convo),
+            tools: Toolbox.defaultTools(),
             persistence: persistence,
             now: now
         )

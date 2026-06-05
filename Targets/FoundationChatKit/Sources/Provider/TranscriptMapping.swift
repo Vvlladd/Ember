@@ -13,7 +13,9 @@ enum TranscriptMapping {
             case .response(let r):
                 return ContextEntry(kind: .modelResponse, text: text(of: r.segments))
             case .toolCalls(let calls):
-                let joined = calls.map { "\($0.toolName)(\(String(describing: $0.arguments)))" }.joined(separator: "\n")
+                let joined = calls.map { call -> String in
+                    "\(call.toolName)(\(Self.argumentString(call.arguments)))"
+                }.joined(separator: "\n")
                 return ContextEntry(kind: .toolCall, text: joined)
             case .toolOutput(let o):
                 return ContextEntry(kind: .toolOutput, text: text(of: o.segments))
@@ -21,6 +23,12 @@ enum TranscriptMapping {
                 return ContextEntry(kind: .modelResponse, text: "")
             }
         }
+    }
+
+    /// Render a tool call's arguments as readable JSON.
+    private static func argumentString(_ content: GeneratedContent) -> String {
+        let raw = content.jsonString
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func text(of segments: [Transcript.Segment]) -> String {

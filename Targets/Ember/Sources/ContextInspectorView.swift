@@ -12,6 +12,11 @@ struct ContextInspectorView: View {
             List(entries) { entry in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
+                        if entry.kind == .toolCall || entry.kind == .toolOutput {
+                            Image(systemName: entry.kind == .toolCall ? "wrench.and.screwdriver" : "arrow.uturn.left")
+                                .font(.caption2)
+                                .foregroundStyle(color(entry.kind))
+                        }
                         Text(label(entry.kind))
                             .font(.caption.bold())
                             .foregroundStyle(color(entry.kind))

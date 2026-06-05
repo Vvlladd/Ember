@@ -16,4 +16,15 @@ struct SupportingTypesTests {
         #expect(ChatError.contextOverflow == ChatError.contextOverflow)
         #expect(ChatError.refusal("no") == ChatError.refusal("no"))
     }
+    @Test func toolFailedIsEquatable() {
+        #expect(ChatError.toolFailed(tool: "calculator", message: "x")
+                == ChatError.toolFailed(tool: "calculator", message: "x"))
+        #expect(ChatError.toolFailed(tool: "a", message: nil)
+                != ChatError.toolFailed(tool: "b", message: nil))
+    }
+    @Test func titleSeedStoresExchange() {
+        let seed = TitleSeed(userText: "u", assistantText: "a")
+        #expect(seed.userText == "u")
+        #expect(seed.assistantText == "a")
+    }
 }

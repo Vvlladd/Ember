@@ -22,6 +22,7 @@ struct ErrorBanner: View {
         case .modelUnavailable: "The on-device model is unavailable."
         case .decodingFailure: "The response couldn't be read. Try again."
         case .cancelled: "Stopped."
+        case .toolFailed(let tool, _): "The '\(tool)' tool failed. Try rephrasing."
         case .contextOverflow: "Context was full and has been compacted."
         case .unknown(let m): "Something went wrong: \(m)"
         }
