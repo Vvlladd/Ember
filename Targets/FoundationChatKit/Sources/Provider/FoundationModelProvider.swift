@@ -83,7 +83,8 @@ public final class FoundationModelProvider: ChatModelProvider {
     }
 
     public func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? {
-        await ConversationTitler.generate(from: exchange)
+        guard case .available = availability else { return nil }
+        return await ConversationTitler.generate(from: exchange)
     }
 }
 

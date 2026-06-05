@@ -10,6 +10,7 @@ public final class ChatCoordinator {
     public private(set) var conversations: [Conversation] = []
     public private(set) var engine: ConversationEngine?
     public private(set) var selectedID: UUID?
+    public private(set) var availability: ModelAvailability
 
     private let provider: any ChatModelProvider
     private let store: ConversationStore
@@ -30,13 +31,16 @@ public final class ChatCoordinator {
         self.settings = settings
         self.modelVersionTag = modelVersionTag
         self.now = now
+        self.availability = provider.availability
         reload()
     }
 
-    public var availability: ModelAvailability { provider.availability }
-
     public func reload() {
         conversations = (try? store.allConversations()) ?? []
+    }
+
+    public func refreshAvailability() {
+        availability = provider.availability
     }
 
     @discardableResult

@@ -6,6 +6,7 @@ import UIKit
 
 struct UnavailableView: View {
     let reason: ModelUnavailableReason
+    var retry: (() -> Void)? = nil
 
     var body: some View {
         ContentUnavailableView {
@@ -15,6 +16,9 @@ struct UnavailableView: View {
         } actions: {
             if reason == .appleIntelligenceNotEnabled {
                 Button("Open Settings", action: openSettings)
+            }
+            if reason == .modelNotReady, let retry {
+                Button("Retry", action: retry)
             }
         }
         .padding()

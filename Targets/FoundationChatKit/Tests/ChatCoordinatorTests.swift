@@ -85,4 +85,12 @@ struct ChatCoordinatorTests {
         await coord.send("second message")
         #expect(coord.conversations.first?.title == "First Title")
     }
+
+    @Test func refreshAvailabilityPicksUpProviderChange() throws {
+        let (coord, provider) = try make()
+        #expect(coord.availability == .available)
+        provider.availability = .unavailable(.modelNotReady)
+        coord.refreshAvailability()
+        #expect(coord.availability == .unavailable(.modelNotReady))
+    }
 }
