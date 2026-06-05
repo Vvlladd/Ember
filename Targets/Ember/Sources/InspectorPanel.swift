@@ -21,7 +21,7 @@ struct InspectorPanel: View {
             Divider()
             switch tab {
             case .context: ContextInspectorView(entries: engine.contextEntries)
-            case .tokens: TokenMeterView(budget: engine.budget)
+            case .tokens: TokenMeterView(budget: engine.budget, reservedReplyTokens: engine.reservedReplyTokens)
             }
         }
     }

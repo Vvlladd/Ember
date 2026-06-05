@@ -3,6 +3,7 @@ import FoundationChatKit
 
 struct TokenMeterView: View {
     let budget: TokenBudgetSnapshot
+    var reservedReplyTokens: Int = 0
 
     var body: some View {
         List {
@@ -15,6 +16,10 @@ struct TokenMeterView: View {
                 .tint(color)
                 Text("\(budget.remaining) tokens remaining" + (budget.isExact ? "" : " · estimated"))
                     .font(.caption).foregroundStyle(.secondary)
+                if reservedReplyTokens > 0 {
+                    Text("Reserved for reply: \(reservedReplyTokens)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if budget.zone != .green {
                     Label(zoneMessage, systemImage: "exclamationmark.triangle")
                         .font(.caption)
