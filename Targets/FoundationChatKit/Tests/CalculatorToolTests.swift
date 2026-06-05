@@ -21,4 +21,8 @@ struct CalculatorToolTests {
         #expect(tool.name == "calculator")
         #expect(!tool.description.isEmpty)
     }
+    @Test func trimsFloatingPointNoise() {
+        #expect(CalculatorTool.format(0.1 + 0.2) == "0.3")
+        #expect(CalculatorTool.format(14.0) == "14")
+    }
 }

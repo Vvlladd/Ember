@@ -36,6 +36,13 @@ public final class FoundationModelProvider: ChatModelProvider {
         nil
     }
 
+    public func exactTokenCount(for text: String) async -> Int? {
+        if #available(iOS 26.4, macOS 26.4, *) {
+            return try? await model.tokenCount(for: text)
+        }
+        return nil
+    }
+
     public func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle {
         let session: LanguageModelSession
         if let data = encodedTranscript,
@@ -76,7 +83,8 @@ public final class FoundationModelProvider: ChatModelProvider {
     }
 
     public func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? {
-        await ConversationTitler.generate(from: exchange)
+        guard case .available = availability else { return nil }
+        return await ConversationTitler.generate(from: exchange)
     }
 }
 
@@ -101,10 +109,11 @@ final class FoundationModelSession: ChatSessionHandle {
         let session = self.session
         let options = self.options
         return AsyncThrowingStream { continuation in
-            Task { @MainActor in
+            let producer = Task { @MainActor in
                 do {
                     let responseStream = session.streamResponse(to: Prompt(prompt), options: options)
                     for try await snapshot in responseStream {
+                        if Task.isCancelled { break }
                         continuation.yield(snapshot.content)
                     }
                     continuation.finish()
@@ -112,6 +121,7 @@ final class FoundationModelSession: ChatSessionHandle {
                     continuation.finish(throwing: Self.map(error))
                 }
             }
+            continuation.onTermination = { _ in producer.cancel() }
         }
     }
 

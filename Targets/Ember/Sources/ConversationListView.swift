@@ -3,17 +3,27 @@ import FoundationChatKit
 
 struct ConversationListView: View {
     let coordinator: ChatCoordinator
+    @State private var renamingID: UUID?
+    @State private var renameDraft = ""
 
     var body: some View {
         List(selection: Binding(get: { coordinator.selectedID },
                                 set: { coordinator.select($0) })) {
-            ForEach(coordinator.conversations, id: \.id) { convo in
+            ForEach(coordinator.visibleConversations, id: \.id) { convo in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(convo.title).lineLimit(1)
                     Text(convo.updatedAt, style: .relative)
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .tag(convo.id)
+                .contextMenu {
+                    Button { renamingID = convo.id; renameDraft = convo.title } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        coordinator.deleteConversation(convo.id)
+                    } label: { Label("Delete", systemImage: "trash") }
+                }
                 .swipeActions {
                     Button(role: .destructive) {
                         coordinator.deleteConversation(convo.id)
@@ -21,6 +31,9 @@ struct ConversationListView: View {
                 }
             }
         }
+        .searchable(text: Binding(get: { coordinator.searchText },
+                                  set: { coordinator.searchText = $0 }),
+                    prompt: "Search chats")
         .navigationTitle("Ember")
         .toolbar {
             ToolbarItem {
@@ -31,8 +44,17 @@ struct ConversationListView: View {
                 .keyboardShortcut("n", modifiers: .command)
             }
         }
+        .alert("Rename Chat", isPresented: Binding(get: { renamingID != nil },
+                                                   set: { if !$0 { renamingID = nil } })) {
+            TextField("Title", text: $renameDraft)
+            Button("Cancel", role: .cancel) { renamingID = nil }
+            Button("Save") {
+                if let id = renamingID { coordinator.rename(id, to: renameDraft) }
+                renamingID = nil
+            }
+        }
         .overlay {
-            if coordinator.conversations.isEmpty {
+            if coordinator.visibleConversations.isEmpty {
                 ContentUnavailableView("No Chats", systemImage: "bubble.left",
                                        description: Text("Tap compose to start."))
             }

@@ -56,4 +56,26 @@ struct ConversationStoreTests {
         store.appendMessage(role: .assistant, text: "hello", to: convo, now: Date(timeIntervalSince1970: 3))
         #expect(store.contextEntries(for: convo).map(\.text) == ["hi", "hello"])
     }
+
+    @Test func searchMatchesTitleAndMessageCaseInsensitive() throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: Conversation.self, Message.self, configurations: config)
+        let store = ConversationStore(context: ModelContext(container))
+        let c1 = store.createConversation(now: Date(timeIntervalSince1970: 0))
+        store.setTitle("Trip Planning", for: c1)
+        let c2 = store.createConversation(now: Date(timeIntervalSince1970: 0))
+        store.appendMessage(role: .user, text: "Quantum physics", to: c2, now: Date(timeIntervalSince1970: 0))
+        #expect(store.search("trip").map(\.id) == [c1.id])
+        #expect(store.search("QUANTUM").map(\.id) == [c2.id])
+        #expect(store.search("   ").count == 2)
+    }
+    @Test func setTitleCustomMarksFlag() throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: Conversation.self, Message.self, configurations: config)
+        let store = ConversationStore(context: ModelContext(container))
+        let convo = store.createConversation(now: Date(timeIntervalSince1970: 0))
+        store.setTitle("My Title", for: convo, custom: true)
+        #expect(convo.title == "My Title")
+        #expect(convo.titleIsCustom == true)
+    }
 }
