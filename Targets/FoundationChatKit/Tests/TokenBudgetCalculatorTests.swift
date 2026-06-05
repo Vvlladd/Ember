@@ -71,4 +71,22 @@ struct TokenBudgetCalculatorTests {
         #expect(toolLine.tokens > 0)
         #expect(snapshot.usedTokens == snapshot.lines.reduce(0) { $0 + $1.tokens })
     }
+
+    @Test func instructionsCountedOnceWhenEntryPresent() {
+        let calc = TokenBudgetCalculator()
+        let snap = calc.snapshot(
+            maxTokens: 4096, instructions: "sys",
+            entries: [ContextEntry(kind: .instructions, text: "sys"),
+                      ContextEntry(kind: .userPrompt, text: "hi")],
+            inFlight: nil, exactCount: { _ in nil })
+        #expect(snap.lines.filter { $0.label == "Instructions" }.count == 1)
+    }
+    @Test func instructionsLineShownWhenNoEntry() {
+        let calc = TokenBudgetCalculator()
+        let snap = calc.snapshot(
+            maxTokens: 4096, instructions: "sys",
+            entries: [ContextEntry(kind: .userPrompt, text: "hi")],
+            inFlight: nil, exactCount: { _ in nil })
+        #expect(snap.lines.contains { $0.label == "Instructions" })
+    }
 }

@@ -22,7 +22,8 @@ public struct TokenBudgetCalculator: Sendable {
         func add(_ label: String, _ text: String) {
             lines.append(BudgetLine(id: lines.count, label: label, tokens: count(text)))
         }
-        if let instructions, !instructions.isEmpty {
+        let hasInstructionEntry = entries.contains { $0.kind == .instructions }
+        if let instructions, !instructions.isEmpty, !hasInstructionEntry {
             add("Instructions", instructions)
         }
         for tool in tools {
