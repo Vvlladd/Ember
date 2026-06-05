@@ -39,9 +39,21 @@ public final class ConversationStore {
         try? context.save()
     }
 
-    public func setTitle(_ title: String, for conversation: Conversation) {
+    public func setTitle(_ title: String, for conversation: Conversation, custom: Bool = false) {
         conversation.title = title
+        conversation.titleIsCustom = custom
         try? context.save()
+    }
+
+    /// Case-insensitive search over titles and message text. Empty query returns all.
+    public func search(_ query: String) -> [Conversation] {
+        let all = (try? allConversations()) ?? []
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return all }
+        return all.filter { convo in
+            convo.title.lowercased().contains(q) ||
+            convo.messages.contains { $0.text.lowercased().contains(q) }
+        }
     }
 
     public func delete(_ convo: Conversation) {

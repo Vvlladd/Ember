@@ -10,6 +10,7 @@ public final class Conversation {
     public var transcriptData: Data?
     public var modelVersionTag: String?
     public var lastTokenCount: Int
+    public var titleIsCustom: Bool = false
     @Relationship(deleteRule: .cascade, inverse: \Message.conversation)
     public var messages: [Message]
 
@@ -21,6 +22,7 @@ public final class Conversation {
         transcriptData: Data? = nil,
         modelVersionTag: String? = nil,
         lastTokenCount: Int = 0,
+        titleIsCustom: Bool = false,
         messages: [Message] = []
     ) {
         self.id = id
@@ -30,6 +32,7 @@ public final class Conversation {
         self.transcriptData = transcriptData
         self.modelVersionTag = modelVersionTag
         self.lastTokenCount = lastTokenCount
+        self.titleIsCustom = titleIsCustom
         self.messages = messages
     }
 
