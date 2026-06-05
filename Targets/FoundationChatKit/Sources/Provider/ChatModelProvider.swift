@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 
 /// A minimal seed for generating a conversation title from the first completed exchange.
 public struct TitleSeed: Sendable, Equatable {
@@ -33,8 +34,11 @@ public protocol ChatModelProvider: AnyObject {
     var maxContextTokens: Int { get }
     /// Exact token count for `text` (26.4+); nil when unavailable -> caller estimates.
     func tokenCount(for text: String) -> Int?
-    func makeSession(settings: GenerationSettings, restoring encodedTranscript: Data?) -> any ChatSessionHandle
+    func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle
     /// Create a fresh session seeded with the given (already condensed) entries as its
     /// starting context. Used to recover from a context-window overflow.
-    func makeSession(settings: GenerationSettings, seeding entries: [ContextEntry]) -> any ChatSessionHandle
+    func makeSession(settings: GenerationSettings, tools: [any Tool], seeding entries: [ContextEntry]) -> any ChatSessionHandle
+    /// Generate a short title from the first completed exchange via guided generation.
+    /// Returns nil to fall back to the deterministic title.
+    func generateTitle(forFirstExchange exchange: TitleSeed) async -> String?
 }

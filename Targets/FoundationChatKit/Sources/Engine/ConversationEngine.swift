@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import Observation
 
 /// Owns one conversation's live session and drives the turn lifecycle. MVVM view model:
@@ -31,6 +32,8 @@ public final class ConversationEngine {
 
     private let provider: any ChatModelProvider
     private var session: any ChatSessionHandle
+    private let tools: [any Tool]
+    private let toolAccounting: [ToolAccounting]
     private var settings: GenerationSettings
     private let calculator: TokenBudgetCalculator
     private let persistence: ConversationPersistence?
@@ -42,6 +45,7 @@ public final class ConversationEngine {
         settings: GenerationSettings = GenerationSettings(),
         restoring encodedTranscript: Data? = nil,
         restoringEntries: [ContextEntry]? = nil,
+        tools: [any Tool] = [],
         persistence: ConversationPersistence? = nil,
         calculator: TokenBudgetCalculator = TokenBudgetCalculator(),
         now: @escaping () -> Date = Date.init
@@ -51,12 +55,14 @@ public final class ConversationEngine {
         self.calculator = calculator
         self.persistence = persistence
         self.now = now
+        self.tools = tools
+        self.toolAccounting = Toolbox.accountingMetadata(for: tools)
         if let encodedTranscript {
-            self.session = provider.makeSession(settings: settings, restoring: encodedTranscript)
+            self.session = provider.makeSession(settings: settings, tools: tools, restoring: encodedTranscript)
         } else if let restoringEntries, !restoringEntries.isEmpty {
-            self.session = provider.makeSession(settings: settings, seeding: restoringEntries)
+            self.session = provider.makeSession(settings: settings, tools: tools, seeding: restoringEntries)
         } else {
-            self.session = provider.makeSession(settings: settings, restoring: nil)
+            self.session = provider.makeSession(settings: settings, tools: tools, restoring: nil)
         }
         self.budget = TokenBudgetSnapshot(maxTokens: provider.maxContextTokens, usedTokens: 0, isExact: false, lines: [])
         self.messages = ContextProjection.bubbles(from: session.contextEntries, now: now)
@@ -128,7 +134,7 @@ public final class ConversationEngine {
 
     private func recoverFromOverflow() {
         let condensed = OverflowRecovery.condense(session.contextEntries)
-        session = provider.makeSession(settings: settings, seeding: condensed)
+        session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Context window was full — older turns were compacted to keep the chat going.",
                                  createdAt: now())
@@ -145,6 +151,7 @@ public final class ConversationEngine {
             instructions: settings.instructions,
             entries: session.contextEntries,
             inFlight: inFlight,
+            tools: toolAccounting,
             exactCount: { text in providerRef.tokenCount(for: text) }
         )
     }

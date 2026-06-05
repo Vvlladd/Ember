@@ -36,23 +36,21 @@ public final class FoundationModelProvider: ChatModelProvider {
         nil
     }
 
-    public func makeSession(settings: GenerationSettings, restoring encodedTranscript: Data?) -> any ChatSessionHandle {
+    public func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle {
         let session: LanguageModelSession
         if let data = encodedTranscript,
            let transcript = try? JSONDecoder().decode(Transcript.self, from: data) {
-            session = LanguageModelSession(transcript: transcript)
+            session = LanguageModelSession(tools: tools, transcript: transcript)
         } else if let instructions = settings.instructions {
-            session = LanguageModelSession(instructions: instructions)
+            session = LanguageModelSession(tools: tools, instructions: instructions)
         } else {
-            session = LanguageModelSession()
+            session = LanguageModelSession(tools: tools)
         }
         session.prewarm()
         return FoundationModelSession(session: session, settings: settings)
     }
 
-    public func makeSession(settings: GenerationSettings, seeding entries: [ContextEntry]) -> any ChatSessionHandle {
-        // Phase 1: carry the condensed entries into a fresh session as an instructions recap.
-        // Robust (no fragile Transcript reconstruction) and cannot re-overflow.
+    public func makeSession(settings: GenerationSettings, tools: [any Tool], seeding entries: [ContextEntry]) -> any ChatSessionHandle {
         let recap = entries.map { entry -> String in
             let speaker: String
             switch entry.kind {
@@ -71,9 +69,14 @@ public final class FoundationModelProvider: ChatModelProvider {
             let base = settings.instructions.map { $0 + "\n\n" } ?? ""
             combined = base + "Summary of earlier conversation:\n" + recap
         }
-        let session = combined.map { LanguageModelSession(instructions: $0) } ?? LanguageModelSession()
+        let session = combined.map { LanguageModelSession(tools: tools, instructions: $0) }
+            ?? LanguageModelSession(tools: tools)
         session.prewarm()
         return FoundationModelSession(session: session, settings: settings)
+    }
+
+    public func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? {
+        await ConversationTitler.generate(from: exchange)
     }
 }
 
@@ -124,6 +127,10 @@ final class FoundationModelSession: ChatSessionHandle {
     func encodedTranscript() -> Data? { try? JSONEncoder().encode(session.transcript) }
 
     static func map(_ error: Error) -> Error {
+        if let toolError = error as? LanguageModelSession.ToolCallError {
+            return ChatError.toolFailed(tool: toolError.tool.name,
+                                        message: String(describing: toolError.underlyingError))
+        }
         guard let genError = error as? LanguageModelSession.GenerationError else { return error }
         switch genError {
         case .exceededContextWindowSize: return ChatError.contextOverflow

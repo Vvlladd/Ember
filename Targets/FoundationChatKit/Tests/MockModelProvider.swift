@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 @testable import FoundationChatKit
 
 /// Deterministic test double. Scripts streaming snapshots and errors so the engine can
@@ -14,6 +15,8 @@ final class MockSessionHandle: ChatSessionHandle {
     var scriptedError: Error?
     var errorAfter: Int = 0
     var commitsEntriesOnFinish = true
+    /// Scripted (toolCallText, toolOutputText) pairs injected into contextEntries on finish.
+    var scriptedToolInteractions: [(call: String, output: String)] = []
     private(set) var prewarmCount = 0
 
     func stream(prompt: String) -> AsyncThrowingStream<String, Error> {
@@ -36,6 +39,10 @@ final class MockSessionHandle: ChatSessionHandle {
                 }
                 if commits {
                     self.contextEntries.append(ContextEntry(kind: .userPrompt, text: prompt))
+                    for interaction in self.scriptedToolInteractions {
+                        self.contextEntries.append(ContextEntry(kind: .toolCall, text: interaction.call))
+                        self.contextEntries.append(ContextEntry(kind: .toolOutput, text: interaction.output))
+                    }
                     self.contextEntries.append(ContextEntry(kind: .modelResponse, text: snapshots.last ?? ""))
                 }
                 self.isResponding = false
@@ -64,11 +71,18 @@ final class MockModelProvider: ChatModelProvider {
     var maxContextTokens: Int = 4096
     var exactCounts: Bool = false
     let session = MockSessionHandle()
+    var recordedTools: [any Tool] = []
+    var titleResult: String?
 
     func tokenCount(for text: String) -> Int? { exactCounts ? text.count : nil }
-    func makeSession(settings: GenerationSettings, restoring encodedTranscript: Data?) -> any ChatSessionHandle { session }
-    func makeSession(settings: GenerationSettings, seeding entries: [ContextEntry]) -> any ChatSessionHandle {
+    func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle {
+        recordedTools = tools
+        return session
+    }
+    func makeSession(settings: GenerationSettings, tools: [any Tool], seeding entries: [ContextEntry]) -> any ChatSessionHandle {
+        recordedTools = tools
         session.contextEntries = entries
         return session
     }
+    func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? { titleResult }
 }
