@@ -33,10 +33,13 @@ struct ConversationEngineTests {
 
     @Test func overflowSeedsNewSessionFromCondensedEntries() async {
         let provider = MockModelProvider()
+        provider.summarizeResult = "RECAP"
         provider.session.contextEntries = [
             ContextEntry(kind: .userPrompt, text: "first"),
             ContextEntry(kind: .modelResponse, text: "a"),
             ContextEntry(kind: .userPrompt, text: "b"),
+            ContextEntry(kind: .modelResponse, text: "c"),
+            ContextEntry(kind: .userPrompt, text: "d"),
             ContextEntry(kind: .modelResponse, text: "last"),
         ]
         provider.session.commitsEntriesOnFinish = false
@@ -47,8 +50,10 @@ struct ConversationEngineTests {
         await engine.send("hi")
         #expect(engine.messages.contains { $0.role == .systemNotice })
         #expect(engine.lastError == nil)
-        // Recovery actually reduced context to the condensed first+last entries.
-        #expect(provider.session.contextEntries.map(\.text) == ["first", "last"])
+        // Recovery compacted older turns into a model recap, keeping the recent ones verbatim.
+        #expect(provider.session.contextEntries.first?.text.contains("RECAP") == true)
+        #expect(provider.session.contextEntries.count < 6)
+        #expect(provider.session.contextEntries.last?.text == "last")
     }
 
     @Test func cancelAfterCompletionIsSafe() async {

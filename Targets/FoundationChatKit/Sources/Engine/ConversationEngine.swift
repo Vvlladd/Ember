@@ -30,6 +30,9 @@ public final class ConversationEngine {
     /// Encoded transcript for fast/faithful resume (nil if the provider doesn't support it).
     public var encodedTranscript: Data? { session.encodedTranscript() }
 
+    /// Tokens kept free for the model's reply (drives proactive compaction + the Tokens tab).
+    public var reservedReplyTokens: Int { settings.reservedReplyTokens }
+
     private let provider: any ChatModelProvider
     private var session: any ChatSessionHandle
     private let tools: [any Tool]
@@ -84,6 +87,8 @@ public final class ConversationEngine {
         isResponding = true
         defer { isResponding = false }
 
+        await compactIfNeeded(for: prompt)
+
         let userMessage = ChatMessage(role: .user, text: prompt, createdAt: now())
         messages.append(userMessage)
         persistence?.recordMessage(userMessage)
@@ -107,7 +112,7 @@ public final class ConversationEngine {
             finalizeAssistant(at: assistantIndex)
             await refreshExactBudget()
         } catch {
-            handle(error, assistantIndex: assistantIndex)
+            await handle(error, assistantIndex: assistantIndex)
         }
     }
 
@@ -118,7 +123,7 @@ public final class ConversationEngine {
         persistence?.recordResumeState(session.encodedTranscript(), budget.usedTokens)
     }
 
-    private func handle(_ error: Error, assistantIndex: Int) {
+    private func handle(_ error: Error, assistantIndex: Int) async {
         if assistantIndex < messages.count, messages[assistantIndex].role == .assistant,
            messages[assistantIndex].text.isEmpty {
             messages.remove(at: assistantIndex)
@@ -128,14 +133,30 @@ public final class ConversationEngine {
         let chatError = (error as? ChatError) ?? .unknown(String(describing: error))
         switch chatError {
         case .contextOverflow:
-            recoverFromOverflow()
+            await recoverFromOverflow()
         default:
             lastError = chatError
         }
     }
 
-    private func recoverFromOverflow() {
-        let condensed = OverflowRecovery.condense(session.contextEntries)
+    /// Compact proactively when the projected turn (current context + this prompt + the reserved
+    /// reply headroom) would exceed the window, so the reply always has room.
+    private func compactIfNeeded(for prompt: String) async {
+        let projected = budget.usedTokens + calculator.estimate(prompt) + settings.reservedReplyTokens
+        guard projected > provider.maxContextTokens, session.contextEntries.count > 1 else { return }
+        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider)
+        session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
+        let notice = ChatMessage(role: .systemNotice,
+                                 text: "Older turns were summarized to make room.",
+                                 createdAt: now())
+        messages.append(notice)
+        persistence?.recordMessage(notice)
+        recomputeBudget(inFlight: nil)
+        persistence?.recordResumeState(session.encodedTranscript(), budget.usedTokens)
+    }
+
+    private func recoverFromOverflow() async {
+        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Context window was full — older turns were compacted to keep the chat going.",
