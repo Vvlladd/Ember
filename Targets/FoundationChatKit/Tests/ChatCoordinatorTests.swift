@@ -93,4 +93,30 @@ struct ChatCoordinatorTests {
         coord.refreshAvailability()
         #expect(coord.availability == .unavailable(.modelNotReady))
     }
+
+    @Test func renameSetsCustomTitle() throws {
+        let (coord, _) = try make()
+        coord.newConversation()
+        let id = coord.selectedID!
+        coord.rename(id, to: "  My Chat  ")
+        #expect(coord.conversations.first?.title == "My Chat")
+    }
+    @Test func autoTitleDoesNotClobberRenamed() async throws {
+        let (coord, provider) = try make()
+        provider.session.scriptedSnapshots = ["ok"]
+        provider.titleResult = "Generated"
+        coord.newConversation()
+        let id = coord.selectedID!
+        coord.rename(id, to: "Manual")
+        await coord.send("hello there")
+        #expect(coord.conversations.first?.title == "Manual")
+    }
+    @Test func visibleConversationsFiltersBySearch() async throws {
+        let (coord, provider) = try make()
+        provider.session.scriptedSnapshots = ["ok"]
+        coord.newConversation(); await coord.send("apples")
+        coord.newConversation(); await coord.send("oranges")
+        coord.searchText = "apple"
+        #expect(coord.visibleConversations.count == 1)
+    }
 }

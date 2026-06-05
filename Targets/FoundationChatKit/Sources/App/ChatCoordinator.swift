@@ -11,6 +11,8 @@ public final class ChatCoordinator {
     public private(set) var engine: ConversationEngine?
     public private(set) var selectedID: UUID?
     public private(set) var availability: ModelAvailability
+    public private(set) var isProcessing = false
+    public var searchText: String = ""
 
     private let provider: any ChatModelProvider
     private let store: ConversationStore
@@ -67,25 +69,39 @@ public final class ChatCoordinator {
         reload()
     }
 
+    public var visibleConversations: [Conversation] {
+        store.search(searchText)
+    }
+
+    public func rename(_ id: UUID, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let convo = conversations.first(where: { $0.id == id }) else { return }
+        store.setTitle(trimmed, for: convo, custom: true)
+        reload()
+    }
+
     public func send(_ text: String) async {
         guard let engine,
               let id = selectedID,
               let convo = conversations.first(where: { $0.id == id }) else { return }
+        isProcessing = true
+        defer { isProcessing = false }
         let isFirstExchange = convo.orderedMessages.isEmpty
         await engine.send(text)
-        // Generate a title only after a genuinely completed first exchange: no error and a
-        // non-empty assistant reply. (An errored/empty first turn keeps the deterministic title.)
+        // Title only after a genuinely completed first exchange (no error, non-empty reply),
+        // never clobbering a user-renamed conversation, and only if it still exists.
         if isFirstExchange,
            engine.lastError == nil,
            let assistantText = engine.messages.last(where: { $0.role == .assistant })?.text,
            !assistantText.isEmpty {
             let seed = TitleSeed(userText: text, assistantText: assistantText)
             if let title = await provider.generateTitle(forFirstExchange: seed),
-               conversations.contains(where: { $0.id == id }) {   // not deleted during the await
+               conversations.contains(where: { $0.id == id }),
+               !convo.titleIsCustom {
                 store.setTitle(title, for: convo)
             }
         }
-        reload()   // title/updatedAt may have changed
+        reload()
     }
 
     private func makeEngine(for convo: Conversation) -> ConversationEngine {
