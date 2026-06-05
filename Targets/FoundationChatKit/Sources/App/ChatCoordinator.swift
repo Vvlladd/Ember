@@ -69,10 +69,15 @@ public final class ChatCoordinator {
               let convo = conversations.first(where: { $0.id == id }) else { return }
         let isFirstExchange = convo.orderedMessages.isEmpty
         await engine.send(text)
-        if isFirstExchange {
-            let assistantText = engine.messages.last(where: { $0.role == .assistant })?.text ?? ""
+        // Generate a title only after a genuinely completed first exchange: no error and a
+        // non-empty assistant reply. (An errored/empty first turn keeps the deterministic title.)
+        if isFirstExchange,
+           engine.lastError == nil,
+           let assistantText = engine.messages.last(where: { $0.role == .assistant })?.text,
+           !assistantText.isEmpty {
             let seed = TitleSeed(userText: text, assistantText: assistantText)
-            if let title = await provider.generateTitle(forFirstExchange: seed) {
+            if let title = await provider.generateTitle(forFirstExchange: seed),
+               conversations.contains(where: { $0.id == id }) {   // not deleted during the await
                 store.setTitle(title, for: convo)
             }
         }
