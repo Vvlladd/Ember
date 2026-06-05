@@ -51,7 +51,7 @@ public final class MemoryStore {
             .map { MemoryHit(record: $0, score: Vector.cosineSimilarity(queryVector, $0.vector)) }
             .filter { $0.score >= threshold }
             .sorted { $0.score > $1.score }
-            .prefix(topK)
+            .prefix(max(0, topK))
             .map { $0 }
     }
 
