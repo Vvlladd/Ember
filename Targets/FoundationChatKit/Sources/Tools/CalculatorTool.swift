@@ -28,6 +28,9 @@ public struct CalculatorTool: Tool {
     /// Renders whole numbers without a trailing ".0".
     static func format(_ value: Double) -> String {
         if value == value.rounded(), abs(value) < 1e15 { return String(Int(value)) }
-        return String(value)
+        // Trim floating-point noise (e.g. 0.1 + 0.2) to a sensible precision.
+        let trimmed = (value * 1e10).rounded() / 1e10
+        if trimmed == trimmed.rounded(), abs(trimmed) < 1e15 { return String(Int(trimmed)) }
+        return String(trimmed)
     }
 }
