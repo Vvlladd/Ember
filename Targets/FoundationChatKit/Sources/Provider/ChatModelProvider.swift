@@ -43,4 +43,6 @@ public protocol ChatModelProvider: AnyObject {
     /// Generate a short title from the first completed exchange via guided generation.
     /// Returns nil to fall back to the deterministic title.
     func generateTitle(forFirstExchange exchange: TitleSeed) async -> String?
+    /// Summarize free text via the model (throwaway session). Returns nil when unavailable/failed.
+    func summarize(_ text: String) async -> String?
 }

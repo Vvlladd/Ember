@@ -4,6 +4,9 @@ public struct TokenBudgetCalculator: Sendable {
     private let estimator: TokenEstimator
     public init(estimator: TokenEstimator = TokenEstimator()) { self.estimator = estimator }
 
+    /// Estimate tokens for a single string (used for proactive pre-turn budgeting).
+    public func estimate(_ text: String) -> Int { estimator.estimate(text) }
+
     public func snapshot(
         maxTokens: Int,
         instructions: String?,

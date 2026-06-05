@@ -74,6 +74,7 @@ final class MockModelProvider: ChatModelProvider {
     let session = MockSessionHandle()
     var recordedTools: [any Tool] = []
     var titleResult: String?
+    var summarizeResult: String?
 
     func tokenCount(for text: String) -> Int? { exactCounts ? text.count : nil }
     func exactTokenCount(for text: String) async -> Int? {
@@ -89,4 +90,5 @@ final class MockModelProvider: ChatModelProvider {
         return session
     }
     func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? { titleResult }
+    func summarize(_ text: String) async -> String? { summarizeResult }
 }

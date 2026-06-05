@@ -86,6 +86,20 @@ public final class FoundationModelProvider: ChatModelProvider {
         guard case .available = availability else { return nil }
         return await ConversationTitler.generate(from: exchange)
     }
+
+    public func summarize(_ text: String) async -> String? {
+        guard case .available = availability else { return nil }
+        let session = LanguageModelSession(
+            instructions: "You compress chat history into a brief, factual summary.")
+        do {
+            let response = try await session.respond(
+                to: "Summarize the following conversation in a few sentences, preserving names, facts, and decisions:\n\(text)")
+            let summary = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return summary.isEmpty ? nil : summary
+        } catch {
+            return nil
+        }
+    }
 }
 
 @MainActor
