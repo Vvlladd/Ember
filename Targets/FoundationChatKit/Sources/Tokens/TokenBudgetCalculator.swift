@@ -9,6 +9,7 @@ public struct TokenBudgetCalculator: Sendable {
         instructions: String?,
         entries: [ContextEntry],
         inFlight: String?,
+        tools: [ToolAccounting] = [],
         exactCount: (String) -> Int?
     ) -> TokenBudgetSnapshot {
         var isExact = true
@@ -23,6 +24,9 @@ public struct TokenBudgetCalculator: Sendable {
         }
         if let instructions, !instructions.isEmpty {
             add("Instructions", instructions)
+        }
+        for tool in tools {
+            add("Tool: \(tool.name)", tool.schemaDigest)
         }
         for entry in entries {
             add(Self.label(for: entry.kind), entry.text)
