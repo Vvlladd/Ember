@@ -108,10 +108,11 @@ final class FoundationModelSession: ChatSessionHandle {
         let session = self.session
         let options = self.options
         return AsyncThrowingStream { continuation in
-            Task { @MainActor in
+            let producer = Task { @MainActor in
                 do {
                     let responseStream = session.streamResponse(to: Prompt(prompt), options: options)
                     for try await snapshot in responseStream {
+                        if Task.isCancelled { break }
                         continuation.yield(snapshot.content)
                     }
                     continuation.finish()
@@ -119,6 +120,7 @@ final class FoundationModelSession: ChatSessionHandle {
                     continuation.finish(throwing: Self.map(error))
                 }
             }
+            continuation.onTermination = { _ in producer.cancel() }
         }
     }
 
