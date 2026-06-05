@@ -119,4 +119,32 @@ struct ChatCoordinatorTests {
         coord.searchText = "apple"
         #expect(coord.visibleConversations.count == 1)
     }
+
+    @MainActor
+    private func makeWithMemory() throws -> (ChatCoordinator, MockModelProvider, MemoryStore) {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: Conversation.self, Message.self, configurations: config)
+        let context = ModelContext(container)
+        let store = ConversationStore(context: context)
+        let memory = MemoryStore(context: context, embedder: MockEmbedder())
+        let provider = MockModelProvider()
+        let coord = ChatCoordinator(provider: provider, store: store,
+                                    settings: GenerationSettings(instructions: "sys"),
+                                    modelVersionTag: "v1", memory: memory,
+                                    now: { Date(timeIntervalSince1970: 0) })
+        return (coord, provider, memory)
+    }
+
+    @Test func registersMemorySearchTool() throws {
+        let (coord, provider, _) = try makeWithMemory()
+        coord.newConversation()
+        #expect(provider.recordedTools.contains { $0.name == "searchMemory" })
+    }
+    @Test func sendIndexesMessages() async throws {
+        let (coord, provider, memory) = try makeWithMemory()
+        provider.session.scriptedSnapshots = ["ok"]
+        coord.newConversation()
+        await coord.send("trip to paris")
+        #expect(memory.snapshot().contains { $0.text == "trip to paris" })
+    }
 }
