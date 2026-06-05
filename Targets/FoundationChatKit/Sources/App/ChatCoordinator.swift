@@ -64,9 +64,19 @@ public final class ChatCoordinator {
     }
 
     public func send(_ text: String) async {
-        guard let engine else { return }
+        guard let engine,
+              let id = selectedID,
+              let convo = conversations.first(where: { $0.id == id }) else { return }
+        let isFirstExchange = convo.orderedMessages.isEmpty
         await engine.send(text)
-        reload()
+        if isFirstExchange {
+            let assistantText = engine.messages.last(where: { $0.role == .assistant })?.text ?? ""
+            let seed = TitleSeed(userText: text, assistantText: assistantText)
+            if let title = await provider.generateTitle(forFirstExchange: seed) {
+                store.setTitle(title, for: convo)
+            }
+        }
+        reload()   // title/updatedAt may have changed
     }
 
     private func makeEngine(for convo: Conversation) -> ConversationEngine {
@@ -86,6 +96,7 @@ public final class ChatCoordinator {
             settings: settings,
             restoring: canUseTranscript ? convo.transcriptData : nil,
             restoringEntries: canUseTranscript ? nil : store.contextEntries(for: convo),
+            tools: Toolbox.defaultTools(),
             persistence: persistence,
             now: now
         )

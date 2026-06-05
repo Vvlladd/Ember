@@ -39,6 +39,11 @@ public final class ConversationStore {
         try? context.save()
     }
 
+    public func setTitle(_ title: String, for conversation: Conversation) {
+        conversation.title = title
+        try? context.save()
+    }
+
     public func delete(_ convo: Conversation) {
         context.delete(convo)
         try? context.save()
