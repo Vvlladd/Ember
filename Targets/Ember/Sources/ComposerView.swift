@@ -12,7 +12,7 @@ struct ComposerView: View {
                 .lineLimit(1...6)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(send)
-                .disabled(engine.isResponding)
+                .disabled(engine.isResponding || coordinator.isProcessing)
             if engine.isResponding {
                 Button(role: .destructive, action: engine.cancel) {
                     Image(systemName: "stop.circle.fill").font(.title2)
@@ -22,7 +22,7 @@ struct ComposerView: View {
                 Button(action: send) {
                     Image(systemName: "arrow.up.circle.fill").font(.title2)
                 }
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || coordinator.isProcessing)
                 .keyboardShortcut(.return, modifiers: .command)
             }
         }
