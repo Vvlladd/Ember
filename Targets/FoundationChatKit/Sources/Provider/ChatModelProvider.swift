@@ -1,5 +1,15 @@
 import Foundation
 
+/// A minimal seed for generating a conversation title from the first completed exchange.
+public struct TitleSeed: Sendable, Equatable {
+    public let userText: String
+    public let assistantText: String
+    public init(userText: String, assistantText: String) {
+        self.userText = userText
+        self.assistantText = assistantText
+    }
+}
+
 /// One in-flight chat context (wraps a `LanguageModelSession`). `@MainActor` because the
 /// underlying session is observed on the main actor and drives UI.
 @MainActor
