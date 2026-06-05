@@ -60,6 +60,10 @@ public final class ChatCoordinator {
             return
         }
         engine = makeEngine(for: convo)
+        // Refresh to exact token counts (26.4+) for the reopened conversation; init only ran
+        // the synchronous estimator (spec 3.A "after resume").
+        let engineRef = engine
+        Task { await engineRef?.refreshExactBudget() }
     }
 
     public func deleteConversation(_ id: UUID) {
@@ -69,8 +73,16 @@ public final class ChatCoordinator {
         reload()
     }
 
+    /// The conversation list filtered by `searchText`. Filters the observed `conversations`
+    /// array in-memory (case-insensitive title + message match) so the sidebar stays reactive to
+    /// create/delete and avoids a SwiftData fetch on every render.
     public var visibleConversations: [Conversation] {
-        store.search(searchText)
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return conversations }
+        return conversations.filter { convo in
+            convo.title.lowercased().contains(q) ||
+            convo.messages.contains { $0.text.lowercased().contains(q) }
+        }
     }
 
     public func rename(_ id: UUID, to title: String) {
