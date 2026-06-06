@@ -7,6 +7,12 @@ public final class MemoryStore {
     private let context: ModelContext
     public let embedder: any TextEmbedder
 
+    /// Lazily built snapshot; `nil` means "rebuild on next read". Invalidated only when a vector is
+    /// actually written (see `index`), so repeated reads avoid re-fetching and re-unarchiving.
+    private var cachedSnapshot: [MemoryRecord]?
+    /// Counts how many times the snapshot cache has actually (re)built — for tests only.
+    private(set) var snapshotBuildCount = 0
+
     public init(context: ModelContext, embedder: any TextEmbedder) {
         self.context = context
         self.embedder = embedder
@@ -18,6 +24,7 @@ public final class MemoryStore {
         guard let vector = embedder.embed(message.text) else { return }
         message.embedding = Self.archive(vector)
         try? context.save()
+        cachedSnapshot = nil  // a vector was written — invalidate the cache
     }
 
     /// One-time embedding of all persisted messages lacking a vector.
@@ -27,9 +34,11 @@ public final class MemoryStore {
     }
 
     /// Immutable snapshot of every embedded message for off-actor cosine search.
+    /// Cached and reused until an invalidating write (see `index`) occurs.
     public func snapshot() -> [MemoryRecord] {
+        if let cachedSnapshot { return cachedSnapshot }
         let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
-        return all.compactMap { message in
+        let records = all.compactMap { message -> MemoryRecord? in
             guard let data = message.embedding, message.role != .systemNotice else { return nil }
             return MemoryRecord(
                 messageID: message.id,
@@ -40,6 +49,9 @@ public final class MemoryStore {
                 vector: Self.unarchive(data)
             )
         }
+        cachedSnapshot = records
+        snapshotBuildCount += 1
+        return records
     }
 
     /// Pure brute-force cosine top-k over a snapshot; drops excluded ids and scores below `threshold`.

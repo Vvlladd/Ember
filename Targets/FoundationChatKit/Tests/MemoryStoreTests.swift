@@ -57,4 +57,50 @@ struct MemoryStoreTests {
         let hits2 = MemoryStore.search(snap, queryVector: q, topK: 3, threshold: 0.1, excludingMessageIDs: excluded)
         #expect(!hits2.contains { $0.record.text == "trip to paris" })
     }
+
+    @Test func snapshotIsCachedUntilInvalidatingWrite() throws {
+        let (mem, store) = try makeStore()
+        let c = store.createConversation(now: Date(timeIntervalSince1970: 0))
+        store.appendMessage(role: .user, text: "trip to paris", to: c, now: Date(timeIntervalSince1970: 0))
+        mem.backfill()
+
+        // First call builds the cache.
+        let first = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+        #expect(first.count == 1)
+
+        // Repeated calls reuse the cache (no rebuild) and return identical results.
+        let second = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+        #expect(second == first)
+
+        // Adding a message without indexing it does NOT invalidate the cache:
+        // snapshot() stays stale (still 1 record) and does not rebuild.
+        store.appendMessage(role: .assistant, text: "paris is great", to: c, now: Date(timeIntervalSince1970: 1))
+        let stillStale = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+        #expect(stillStale.count == 1)
+
+        // An invalidating write (indexing the new message) rebuilds on next snapshot()
+        // and reflects the change.
+        mem.index(c.orderedMessages.first { $0.role == .assistant }!)
+        let fresh = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 2)
+        #expect(fresh.count == 2)
+    }
+
+    @Test func indexEarlyReturnDoesNotInvalidateCache() throws {
+        let (mem, store) = try makeStore()
+        let c = store.createConversation(now: Date(timeIntervalSince1970: 0))
+        store.appendMessage(role: .user, text: "trip to paris", to: c, now: Date(timeIntervalSince1970: 0))
+        let indexed = c.orderedMessages.first!
+        mem.index(indexed)
+        _ = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+
+        // Re-indexing an already-embedded message writes nothing -> cache stays valid.
+        mem.index(indexed)
+        _ = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+    }
 }
