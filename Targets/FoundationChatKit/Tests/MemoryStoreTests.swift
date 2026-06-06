@@ -114,6 +114,50 @@ struct MemoryStoreTests {
         #expect(mem.snapshot().contains { $0.source == .note && $0.text == "zzz qqq" })
     }
 
+    // MARK: - saveNoteIfNovel (de-dupe)
+
+    /// Saving the SAME fact twice yields exactly ONE `.note`; the 2nd call returns false.
+    @Test func saveNoteIfNovelSkipsExactDuplicate() throws {
+        let (mem, _) = try makeStore()
+        #expect(mem.saveNoteIfNovel("planning a trip to paris") == true)
+        #expect(mem.saveNoteIfNovel("planning a trip to paris") == false)
+        let notes = mem.snapshot().filter { $0.source == .note }
+        #expect(notes.count == 1)
+        #expect(notes.first?.text == "planning a trip to paris")
+    }
+
+    /// A clearly DIFFERENT fact IS saved (returns true; two notes present).
+    @Test func saveNoteIfNovelSavesDifferentFact() throws {
+        let (mem, _) = try makeStore()
+        #expect(mem.saveNoteIfNovel("trip to paris") == true)
+        #expect(mem.saveNoteIfNovel("debugging swift code") == true)
+        #expect(mem.snapshot().filter { $0.source == .note }.count == 2)
+    }
+
+    /// Near-duplicate path (a): normalized-equal but different case/spacing is skipped.
+    @Test func saveNoteIfNovelSkipsNormalizedEqual() throws {
+        let (mem, _) = try makeStore()
+        #expect(mem.saveNoteIfNovel("Trip To Paris") == true)
+        #expect(mem.saveNoteIfNovel("trip   to  paris") == false)
+        #expect(mem.snapshot().filter { $0.source == .note }.count == 1)
+    }
+
+    /// Near-duplicate path (b): high-cosine but different word order is skipped.
+    /// MockEmbedder maps "trip to paris" and "paris trip" to identical vectors (cosine 1.0).
+    @Test func saveNoteIfNovelSkipsHighCosineDuplicate() throws {
+        let (mem, _) = try makeStore()
+        #expect(mem.saveNoteIfNovel("trip to paris") == true)
+        #expect(mem.saveNoteIfNovel("paris trip") == false)
+        #expect(mem.snapshot().filter { $0.source == .note }.count == 1)
+    }
+
+    /// An empty/whitespace candidate returns false and saves nothing.
+    @Test func saveNoteIfNovelIgnoresEmpty() throws {
+        let (mem, _) = try makeStore()
+        #expect(mem.saveNoteIfNovel("   ") == false)
+        #expect(mem.snapshot().isEmpty)
+    }
+
     @Test func indexEarlyReturnDoesNotInvalidateCache() throws {
         let (mem, store) = try makeStore()
         let c = store.createConversation(now: Date(timeIntervalSince1970: 0))

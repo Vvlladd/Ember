@@ -45,6 +45,46 @@ public final class MemoryStore {
         cachedSnapshot = nil  // a note was written — invalidate the cache
     }
 
+    /// Cosine similarity at or above which a candidate note is treated as a near-duplicate of an
+    /// existing note (so auto-extraction skips it). Tuned for reorderings/paraphrases, not exact text.
+    private static let noteDuplicateCosineThreshold: Float = 0.9
+
+    /// Novelty-aware variant of `saveNote` for AUTO-extraction: persists `text` ONLY if it is not a
+    /// near-duplicate of an EXISTING note (`snapshot()` records with `source == .note`). Returns
+    /// whether it actually saved. Checks cheapest-first: trim/empty → normalized-text equality →
+    /// cosine near-duplicate. The explicit `saveMemory` drain path keeps calling `saveNote` directly,
+    /// so honest "Saved." duplicates are still allowed there; only auto-extraction de-dupes.
+    @discardableResult
+    public func saveNoteIfNovel(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let notes = snapshot().filter { $0.source == .note }
+
+        // 1) Normalized-text equality: lowercase + collapse internal whitespace.
+        let normalizedCandidate = Self.normalizedForDedup(trimmed)
+        if notes.contains(where: { Self.normalizedForDedup($0.text) == normalizedCandidate }) {
+            return false
+        }
+
+        // 2) Cosine near-duplicate: only meaningful when both sides actually embed.
+        if let candidateVector = embedder.embed(trimmed) {
+            for note in notes where !note.vector.isEmpty {
+                if Vector.cosineSimilarity(candidateVector, note.vector) >= Self.noteDuplicateCosineThreshold {
+                    return false
+                }
+            }
+        }
+
+        saveNote(trimmed)
+        return true
+    }
+
+    /// Normalize for de-dup comparison: lowercase, collapse runs of whitespace to single spaces, trim.
+    private static func normalizedForDedup(_ s: String) -> String {
+        s.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
     /// One-time embedding of all persisted messages lacking a vector.
     public func backfill() {
         let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
