@@ -10,7 +10,7 @@ public enum ContextProjection {
                 return ChatMessage(role: .user, text: entry.text, createdAt: now())
             case .modelResponse:
                 return ChatMessage(role: .assistant, text: entry.text, createdAt: now())
-            case .instructions, .toolCall, .toolOutput:
+            case .instructions, .toolCall, .toolOutput, .retrievedMemory:
                 return nil
             }
         }

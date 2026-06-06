@@ -6,6 +6,7 @@ public enum ContextEntryKind: String, Sendable, Equatable {
     case modelResponse
     case toolCall
     case toolOutput
+    case retrievedMemory
 }
 
 public struct ContextEntry: Identifiable, Sendable, Equatable {

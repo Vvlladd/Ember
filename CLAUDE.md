@@ -67,7 +67,7 @@ Reusable skills live in **`.claude/skills/`** (imported from `unPiRoomPlan`). Tr
 ## Where things live
 
 - **Specs:** `docs/superpowers/specs/` · **Plans:** `docs/superpowers/plans/` (one spec + one task-by-task plan per phase; grounded in Apple docs).
-- **Roadmap status:** Phases 1–3 are **built** (streaming chat + gauge + inspector + history → tool calling + guided generation → conversation-memory RAG + advanced budgeting). See `README.md`.
+- **Roadmap status:** Phases 1–4 are **built** (streaming chat + gauge + inspector + history → tool calling + guided generation → conversation-memory RAG + advanced budgeting → **automatic retrieve-before-generate + embedder/snapshot caching + model-decided `saveMemory`**). See `README.md`.
 
 ## How this project is built
 

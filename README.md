@@ -30,7 +30,7 @@ Ember runs entirely on-device (no servers, no network, no API keys). It feels li
 **On-device intelligence**
 - **Tool calling** — three pure, on-device tools (`currentDateTime`, `calculator`, `unitConverter`) built on the FoundationModels `Tool` protocol with `@Generable`/`@Guide` arguments. No network, no permissions.
 - **Guided generation** — model-generated conversation titles (`respond(to:generating:)`), with a deterministic fallback.
-- **Conversation memory (RAG)** — a `searchMemory` tool lets the model recall relevant snippets from *past conversations* via on-device `NLEmbedding` semantic search (brute-force cosine top-k). Every recall is visible in the inspector.
+- **Conversation memory (RAG)** — **automatic** retrieve-before-generate: every turn embeds the prompt and injects the top-k relevant snippets from *past conversations* (on-device `NLEmbedding` cosine) into what the model sees, so recall no longer depends on the model choosing a tool. The `searchMemory` tool is retained as a fallback, and a `saveMemory` write tool lets the model deliberately persist curated facts. Every retrieved memory is visible in the inspector (teal **MEMORY**) and counted in the budget.
 - **Advanced budgeting** — model-summarized context compaction (with a deterministic keep-first-last fallback) and reserve-for-reply: Ember compacts *proactively* before a turn would overflow, so replies always have headroom.
 
 ---
@@ -56,8 +56,9 @@ Two Tuist targets. **All decision logic lives in the framework, behind a protoco
 │  ChatModelProvider / ChatSessionHandle  ┐  the seam                     │
 │     ├─ FoundationModelProvider (real)   ┘  wraps SystemLanguageModel    │
 │     └─ MockModelProvider (tests)                                        │
-│  Tools: Calculator/DateTime/UnitConverter/MemorySearch · Toolbox        │
-│  Memory: TextEmbedder (NLEmbedding) · MemoryStore · ContextCompactor    │
+│  Tools: Calculator/DateTime/UnitConverter/MemorySearch/SaveMemory       │
+│  Memory: TextEmbedder · MemoryStore · MemoryContextBlock · MemoryNote   │
+│          MemoryWriteBuffer · auto-retrieval seam · ContextCompactor      │
 │  Tokens: TokenEstimator · TokenBudgetCalculator · TokenBudget           │
 │  Context: ContextProjection · OverflowRecovery                          │
 │  Persistence: Conversation · Message · ConversationStore (SwiftData)    │
@@ -114,7 +115,7 @@ xcodebuild -workspace Ember.xcworkspace -scheme Ember \
 
 ## ✅ Testing
 
-All logic is TDD-covered in the framework (118 tests across 29 suites):
+All logic is TDD-covered in the framework (142 tests across 33 suites):
 
 ```bash
 xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
@@ -125,13 +126,14 @@ The `MockModelProvider`/`MockEmbedder` doubles mean the entire engine, tools, me
 
 ---
 
-## 🗺 Roadmap status — **Phases 1–3 complete**
+## 🗺 Roadmap status — **Phases 1–4 complete**
 
 | Phase | Theme | Status |
 |------|-------|--------|
 | **1** | Streaming chat · availability gating · token gauge · Context inspector · persisted history · overflow recovery | ✅ Built |
 | **2** | Tool calling (`Tool` + `@Generable`/`@Guide`) · guided/structured generation | ✅ Built |
 | **3** | RAG (on-device conversation memory) · advanced budgeting (model-summarized compaction, reserve-for-reply) | ✅ Built |
+| **4** | Memory upgrades — **automatic** retrieve-before-generate · embedder/snapshot caching · model-decided saves (`saveMemory`) | ✅ Built |
 
 Each phase was developed spec-first (see `docs/superpowers/`) and verified end-to-end on the iOS 26 simulator — including a real on-device tool call (`calculator` → 8,673,516) and cross-conversation memory recall (`searchMemory` → "Lisbon").
 

@@ -58,7 +58,7 @@ public final class FoundationModelProvider: ChatModelProvider {
     }
 
     public func makeSession(settings: GenerationSettings, tools: [any Tool], seeding entries: [ContextEntry]) -> any ChatSessionHandle {
-        let recap = entries.map { entry -> String in
+        let recap = entries.compactMap { entry -> String? in
             let speaker: String
             switch entry.kind {
             case .userPrompt: speaker = "User"
@@ -66,6 +66,7 @@ public final class FoundationModelProvider: ChatModelProvider {
             case .instructions: speaker = "System"
             case .toolCall: speaker = "Tool call"
             case .toolOutput: speaker = "Tool output"
+            case .retrievedMemory: return nil   // re-retrieved fresh each turn; never carry stale memory into the recap
             }
             return "\(speaker): \(entry.text)"
         }.joined(separator: "\n")

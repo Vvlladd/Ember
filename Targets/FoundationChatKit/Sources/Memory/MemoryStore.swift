@@ -7,6 +7,12 @@ public final class MemoryStore {
     private let context: ModelContext
     public let embedder: any TextEmbedder
 
+    /// Lazily built snapshot; `nil` means "rebuild on next read". Invalidated only when a vector is
+    /// actually written (see `index`), so repeated reads avoid re-fetching and re-unarchiving.
+    private var cachedSnapshot: [MemoryRecord]?
+    /// Counts how many times the snapshot cache has actually (re)built — for tests only.
+    private(set) var snapshotBuildCount = 0
+
     public init(context: ModelContext, embedder: any TextEmbedder) {
         self.context = context
         self.embedder = embedder
@@ -18,6 +24,25 @@ public final class MemoryStore {
         guard let vector = embedder.embed(message.text) else { return }
         message.embedding = Self.archive(vector)
         try? context.save()
+        cachedSnapshot = nil  // a vector was written — invalidate the cache
+    }
+
+    /// Persist a model-curated fact as a `MemoryNote`. Trims; ignores empty. ALWAYS persists a
+    /// non-empty fact so `SaveMemoryTool`'s "Saved." is honest — even when embedding is unavailable
+    /// (non-Apple-Intelligence host, or OOV/empty-after-`@Guide` text). The embedding is optional:
+    /// when present the note is retrievable (auto-RAG + searchMemory) in FUTURE conversations; when
+    /// absent the note is still stored and visible/recoverable in `snapshot()` (scores 0 in cosine,
+    /// so it is harmlessly filtered out of search by the threshold).
+    /// Invalidates the snapshot cache so the next read includes the new note.
+    public func saveNote(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let vector = embedder.embed(trimmed)   // may be nil if embedding is unavailable
+        let note = MemoryNote(text: trimmed, createdAt: Date(),
+                              embedding: vector.map { Self.archive($0) })
+        context.insert(note)
+        try? context.save()
+        cachedSnapshot = nil  // a note was written — invalidate the cache
     }
 
     /// One-time embedding of all persisted messages lacking a vector.
@@ -27,9 +52,11 @@ public final class MemoryStore {
     }
 
     /// Immutable snapshot of every embedded message for off-actor cosine search.
+    /// Cached and reused until an invalidating write (see `index`) occurs.
     public func snapshot() -> [MemoryRecord] {
+        if let cachedSnapshot { return cachedSnapshot }
         let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
-        return all.compactMap { message in
+        var records = all.compactMap { message -> MemoryRecord? in
             guard let data = message.embedding, message.role != .systemNotice else { return nil }
             return MemoryRecord(
                 messageID: message.id,
@@ -40,6 +67,21 @@ public final class MemoryStore {
                 vector: Self.unarchive(data)
             )
         }
+        let notes = (try? context.fetch(FetchDescriptor<MemoryNote>())) ?? []
+        records += notes.map { note -> MemoryRecord in
+            MemoryRecord(
+                messageID: note.id,
+                conversationID: note.id,
+                conversationTitle: "Saved memory",
+                role: .user,
+                text: note.text,
+                vector: note.embedding.map { Self.unarchive($0) } ?? [],  // unembedded note: empty vector, never matches search
+                source: .note
+            )
+        }
+        cachedSnapshot = records
+        snapshotBuildCount += 1
+        return records
     }
 
     /// Pure brute-force cosine top-k over a snapshot; drops excluded ids and scores below `threshold`.

@@ -17,6 +17,13 @@ final class MockSessionHandle: ChatSessionHandle {
     var commitsEntriesOnFinish = true
     /// Scripted (toolCallText, toolOutputText) pairs injected into contextEntries on finish.
     var scriptedToolInteractions: [(call: String, output: String)] = []
+    /// Facts the scripted model "decides" to save: on finish the mock invokes the REAL registered
+    /// `SaveMemoryTool.call` for each, faithfully exercising its `buffer.add` side effect (the mock
+    /// does NOT otherwise execute registered tools).
+    var scriptedSaveMemoryFacts: [String] = []
+    /// Tools handed to this session by the provider's `makeSession`, so scripted interactions can
+    /// invoke the real registered tool implementations.
+    var registeredTools: [any Tool] = []
     private(set) var prewarmCount = 0
 
     func stream(prompt: String) -> AsyncThrowingStream<String, Error> {
@@ -35,6 +42,20 @@ final class MockSessionHandle: ChatSessionHandle {
                         self.isResponding = false
                         continuation.finish(throwing: error)
                         return
+                    }
+                }
+                // Faithfully invoke the real registered saveMemory tool for any scripted facts.
+                // Surface (don't swallow) tool throws into the stream, matching how the surrounding
+                // code finishes the stream — so a future throw from SaveMemoryTool.call is visible.
+                for fact in self.scriptedSaveMemoryFacts {
+                    if let save = self.registeredTools.first(where: { $0.name == "saveMemory" }) as? SaveMemoryTool {
+                        do {
+                            _ = try await save.call(arguments: .init(fact: fact))
+                        } catch {
+                            self.isResponding = false
+                            continuation.finish(throwing: error)
+                            return
+                        }
                     }
                 }
                 if commits {
@@ -75,6 +96,9 @@ final class MockModelProvider: ChatModelProvider {
     var recordedTools: [any Tool] = []
     var titleResult: String?
     var summarizeResult: String?
+    /// Captures the most recent text passed to `summarize(_:)` so tests can assert what the
+    /// compactor fed into the summary (e.g. that recalled memory was excluded).
+    private(set) var capturedSummarizeInput: String?
 
     func tokenCount(for text: String) -> Int? { exactCounts ? text.count : nil }
     func exactTokenCount(for text: String) async -> Int? {
@@ -82,13 +106,15 @@ final class MockModelProvider: ChatModelProvider {
     }
     func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle {
         recordedTools = tools
+        session.registeredTools = tools
         return session
     }
     func makeSession(settings: GenerationSettings, tools: [any Tool], seeding entries: [ContextEntry]) -> any ChatSessionHandle {
         recordedTools = tools
+        session.registeredTools = tools
         session.contextEntries = entries
         return session
     }
     func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? { titleResult }
-    func summarize(_ text: String) async -> String? { summarizeResult }
+    func summarize(_ text: String) async -> String? { capturedSummarizeInput = text; return summarizeResult }
 }

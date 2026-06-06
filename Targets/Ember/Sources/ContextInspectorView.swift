@@ -42,6 +42,7 @@ struct ContextInspectorView: View {
         case .modelResponse: "ASSISTANT"
         case .toolCall: "TOOL CALL"
         case .toolOutput: "TOOL OUTPUT"
+        case .retrievedMemory: "MEMORY"
         }
     }
     private func color(_ k: ContextEntryKind) -> Color {
@@ -50,6 +51,7 @@ struct ContextInspectorView: View {
         case .userPrompt: .blue
         case .modelResponse: .green
         case .toolCall, .toolOutput: .orange
+        case .retrievedMemory: .teal
         }
     }
 }

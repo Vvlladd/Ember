@@ -10,7 +10,7 @@ public enum ContextCompactor {
         guard entries.count > keepingRecent else { return entries }
         let older = entries.prefix(entries.count - keepingRecent)
         let recent = Array(entries.suffix(keepingRecent))
-        let text = older.map { entry -> String in
+        let text = older.compactMap { entry -> String? in
             let who: String
             switch entry.kind {
             case .userPrompt: who = "User"
@@ -18,6 +18,7 @@ public enum ContextCompactor {
             case .instructions: who = "System"
             case .toolCall: who = "Tool call"
             case .toolOutput: who = "Tool output"
+            case .retrievedMemory: return nil   // re-retrieved fresh each turn; never carry stale memory into the recap
             }
             return "\(who): \(entry.text)"
         }.joined(separator: "\n")

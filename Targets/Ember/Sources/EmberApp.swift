@@ -9,7 +9,7 @@ struct EmberApp: App {
     init() {
         let container: ModelContainer
         do {
-            container = try ModelContainer(for: Conversation.self, Message.self)
+            container = try ModelContainer(for: Conversation.self, Message.self, MemoryNote.self)
         } catch {
             fatalError("Could not create the Ember data store: \(error)")
         }

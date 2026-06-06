@@ -19,7 +19,8 @@ struct MemoryStoreTests {
 
     private func makeStore() throws -> (MemoryStore, ConversationStore) {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: Conversation.self, Message.self, configurations: config)
+        let container = try ModelContainer(for: Conversation.self, Message.self, MemoryNote.self,
+                                           configurations: config)
         let context = ModelContext(container)
         return (MemoryStore(context: context, embedder: MockEmbedder()),
                 ConversationStore(context: context))
@@ -56,5 +57,75 @@ struct MemoryStoreTests {
         let excluded = Set(snap.filter { $0.text == "trip to paris" }.map(\.messageID))
         let hits2 = MemoryStore.search(snap, queryVector: q, topK: 3, threshold: 0.1, excludingMessageIDs: excluded)
         #expect(!hits2.contains { $0.record.text == "trip to paris" })
+    }
+
+    @Test func snapshotIsCachedUntilInvalidatingWrite() throws {
+        let (mem, store) = try makeStore()
+        let c = store.createConversation(now: Date(timeIntervalSince1970: 0))
+        store.appendMessage(role: .user, text: "trip to paris", to: c, now: Date(timeIntervalSince1970: 0))
+        mem.backfill()
+
+        // First call builds the cache.
+        let first = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+        #expect(first.count == 1)
+
+        // Repeated calls reuse the cache (no rebuild) and return identical results.
+        let second = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+        #expect(second == first)
+
+        // Adding a message without indexing it does NOT invalidate the cache:
+        // snapshot() stays stale (still 1 record) and does not rebuild.
+        store.appendMessage(role: .assistant, text: "paris is great", to: c, now: Date(timeIntervalSince1970: 1))
+        let stillStale = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+        #expect(stillStale.count == 1)
+
+        // An invalidating write (indexing the new message) rebuilds on next snapshot()
+        // and reflects the change.
+        mem.index(c.orderedMessages.first { $0.role == .assistant }!)
+        let fresh = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 2)
+        #expect(fresh.count == 2)
+    }
+
+    @Test func saveNoteAppearsInSnapshotAsNote() throws {
+        let (mem, _) = try makeStore()
+        mem.saveNote("planning a trip to paris")
+        let snap = mem.snapshot()
+        #expect(snap.contains { $0.source == .note && $0.text == "planning a trip to paris" })
+    }
+
+    @Test func saveNoteIgnoresEmptyAndTrims() throws {
+        let (mem, _) = try makeStore()
+        mem.saveNote("   ")
+        #expect(mem.snapshot().isEmpty)
+        mem.saveNote("  trip to paris  ")
+        #expect(mem.snapshot().contains { $0.text == "trip to paris" && $0.source == .note })
+    }
+
+    /// "Saved." must be honest: a fact whose words the embedder does NOT know (so `embed` returns
+    /// nil) is STILL persisted and visible in `snapshot()` as a `.note`, rather than silently dropped.
+    @Test func saveNotePersistsEvenWhenEmbeddingUnavailable() throws {
+        let (mem, _) = try makeStore()
+        #expect(MockEmbedder().embed("zzz qqq") == nil)   // precondition: unembeddable text
+        mem.saveNote("zzz qqq")
+        #expect(mem.snapshot().contains { $0.source == .note && $0.text == "zzz qqq" })
+    }
+
+    @Test func indexEarlyReturnDoesNotInvalidateCache() throws {
+        let (mem, store) = try makeStore()
+        let c = store.createConversation(now: Date(timeIntervalSince1970: 0))
+        store.appendMessage(role: .user, text: "trip to paris", to: c, now: Date(timeIntervalSince1970: 0))
+        let indexed = c.orderedMessages.first!
+        mem.index(indexed)
+        _ = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
+
+        // Re-indexing an already-embedded message writes nothing -> cache stays valid.
+        mem.index(indexed)
+        _ = mem.snapshot()
+        #expect(mem.snapshotBuildCount == 1)
     }
 }

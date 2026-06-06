@@ -49,6 +49,7 @@ public struct TokenBudgetCalculator: Sendable {
         case .modelResponse: return "Assistant"
         case .toolCall: return "Tool call"
         case .toolOutput: return "Tool output"
+        case .retrievedMemory: return "Memory"
         }
     }
 }
