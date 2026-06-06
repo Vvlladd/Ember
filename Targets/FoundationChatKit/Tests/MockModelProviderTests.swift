@@ -23,4 +23,28 @@ struct MockModelProviderTests {
             for try await _ in provider.session.stream(prompt: "hi") {}
         }
     }
+
+    @Test func extractMemoriesReturnsScriptedFacts() async {
+        let provider = MockModelProvider()
+        provider.extractedMemories = ["User is planning a trip to Lisbon"]
+        let facts = await provider.extractMemories(
+            userText: "I'm planning a trip to Lisbon next month",
+            assistantText: "That sounds great! Lisbon is lovely.")
+        #expect(facts == ["User is planning a trip to Lisbon"])
+    }
+
+    @Test func extractMemoriesCapturesInputs() async {
+        let provider = MockModelProvider()
+        _ = await provider.extractMemories(
+            userText: "My name is Vlad",
+            assistantText: "Nice to meet you, Vlad.")
+        #expect(provider.capturedExtractInput?.userText == "My name is Vlad")
+        #expect(provider.capturedExtractInput?.assistantText == "Nice to meet you, Vlad.")
+    }
+
+    @Test func extractMemoriesDefaultsToEmpty() async {
+        let provider = MockModelProvider()
+        let facts = await provider.extractMemories(userText: "hi", assistantText: "hello")
+        #expect(facts == [])
+    }
 }

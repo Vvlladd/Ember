@@ -1,7 +1,7 @@
-# Ember — Plan 9 (proposal): Proactive auto-save of salient user facts
+# Ember — Plan 9 (implemented): Proactive auto-save of salient user facts
 
-> **Status:** PROPOSAL / not yet implemented. Implement via superpowers subagent-driven TDD (fresh implementer per task, red→green→commit, reviewer gate). One branch (`plan-9-auto-fact-extraction`) + merge to `main`.
-> **Relationship:** Follows Plan 7 (`docs/superpowers/plans/2026-06-06-ember-plan-7-auto-rag.md`). Independent of Plan 8 (hybrid retrieval) but **strongest combined with it** — this plan improves *what is stored*, Plan 8 improves *how it's found*. This is the higher-leverage of the two for cross-conversation recall.
+> **Status:** ✅ IMPLEMENTED on branch `plan-9-auto-fact-extraction` (Tasks 1–3; Task 4 provenance field deferred). Built via superpowers subagent-driven TDD (fresh implementer per task, red→green→commit, two-stage spec+quality review gate, final whole-feature review = READY TO MERGE). Commits `6385c0d` (seam+mock) · `067d46c` (`saveNoteIfNovel` de-dupe) · `f70baac` (wire into `send` + `autoExtractMemories` setting). **153 framework tests green; macOS + iOS (`iPhone 17 Pro`) app builds green.** Remaining gate: the on-device E2E (erase sim → state a fact → new chat → confirm an auto-extracted `.note` and recall) + merge to `main` are the manual hand-back.
+> **Relationship:** Follows Plan 7 (`docs/superpowers/plans/2026-06-06-ember-plan-7-auto-rag.md`). Independent of Plan 8 (hybrid retrieval, still a proposal) but **strongest combined with it** — this plan improves *what is stored*, Plan 8 improves *how it's found*. This is the higher-leverage of the two for cross-conversation recall.
 
 ## Why (the problem this solves)
 
