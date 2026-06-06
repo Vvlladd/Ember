@@ -30,9 +30,6 @@ public struct MemorySearchTool: Tool {
         }
         let hits = MemoryStore.search(snapshot, queryVector: queryVector, excludingMessageIDs: excludedIDs)
         guard !hits.isEmpty else { return "No relevant earlier context found." }
-        return hits.map { hit in
-            let who = hit.record.role == .user ? "You" : "Assistant"
-            return "From '\(hit.record.conversationTitle)' — \(who): \(hit.record.text)"
-        }.joined(separator: "\n")
+        return hits.map { MemoryContextBlock.formatHit($0) }.joined(separator: "\n")
     }
 }

@@ -21,4 +21,14 @@ struct ContextProjectionTests {
         let msgs = ContextProjection.bubbles(from: [ContextEntry(kind: .instructions, text: "x")], now: now)
         #expect(msgs.isEmpty)
     }
+
+    @Test func retrievedMemoryProducesNoBubble() {
+        let entries = [
+            ContextEntry(kind: .retrievedMemory, text: "Relevant context from earlier conversations"),
+            ContextEntry(kind: .userPrompt, text: "hi"),
+        ]
+        let msgs = ContextProjection.bubbles(from: entries, now: now)
+        #expect(msgs.map(\.role) == [.user])
+        #expect(msgs.map(\.text) == ["hi"])
+    }
 }

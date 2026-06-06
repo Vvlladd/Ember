@@ -66,6 +66,7 @@ public final class FoundationModelProvider: ChatModelProvider {
             case .instructions: speaker = "System"
             case .toolCall: speaker = "Tool call"
             case .toolOutput: speaker = "Tool output"
+            case .retrievedMemory: speaker = "Memory"
             }
             return "\(speaker): \(entry.text)"
         }.joined(separator: "\n")

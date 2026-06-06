@@ -18,6 +18,7 @@ public enum ContextCompactor {
             case .instructions: who = "System"
             case .toolCall: who = "Tool call"
             case .toolOutput: who = "Tool output"
+            case .retrievedMemory: who = "Memory"
             }
             return "\(who): \(entry.text)"
         }.joined(separator: "\n")

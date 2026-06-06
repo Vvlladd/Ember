@@ -81,6 +81,16 @@ struct TokenBudgetCalculatorTests {
             inFlight: nil, exactCount: { _ in nil })
         #expect(snap.lines.filter { $0.label == "Instructions" }.count == 1)
     }
+    @Test func retrievedMemoryLabelledAndCounted() {
+        let calc = TokenBudgetCalculator()
+        let snap = calc.snapshot(
+            maxTokens: 4096, instructions: nil,
+            entries: [ContextEntry(kind: .retrievedMemory, text: "earlier paris trip context")],
+            inFlight: nil, exactCount: { $0.count })
+        let line = snap.lines.first { $0.label == "Memory" }
+        #expect(line != nil)
+        #expect(line!.tokens > 0)
+    }
     @Test func instructionsLineShownWhenNoEntry() {
         let calc = TokenBudgetCalculator()
         let snap = calc.snapshot(

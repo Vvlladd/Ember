@@ -5,11 +5,16 @@ public struct GenerationSettings: Sendable, Equatable {
     public var temperature: Double?
     public var maximumResponseTokens: Int?
     public var reservedReplyTokens: Int
+    public var memoryRetrievalTopK: Int = 2
+    public var memoryRetrievalThreshold: Float = 0.35
     public init(instructions: String? = nil, temperature: Double? = nil,
-                maximumResponseTokens: Int? = nil, reservedReplyTokens: Int = 512) {
+                maximumResponseTokens: Int? = nil, reservedReplyTokens: Int = 512,
+                memoryRetrievalTopK: Int = 2, memoryRetrievalThreshold: Float = 0.35) {
         self.instructions = instructions
         self.temperature = temperature
         self.maximumResponseTokens = maximumResponseTokens
         self.reservedReplyTokens = reservedReplyTokens
+        self.memoryRetrievalTopK = memoryRetrievalTopK
+        self.memoryRetrievalThreshold = memoryRetrievalThreshold
     }
 }
