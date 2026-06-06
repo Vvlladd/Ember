@@ -5,7 +5,7 @@ import FoundationModels
 /// Cross-dimension conversions return a corrective string instead of throwing.
 public struct UnitConverterTool: Tool {
     public let name = "unitConverter"
-    public let description = "Convert a value between units of length, mass, or temperature."
+    public let description = "Convert a numeric value between units. Call ONLY when the user explicitly asks to convert units."
 
     @Generable
     public enum Unit: String {

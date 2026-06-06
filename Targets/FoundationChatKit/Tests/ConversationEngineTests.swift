@@ -113,7 +113,7 @@ struct ConversationEngineTests {
             .first(where: { $0.kind == .userPrompt })?.text
         #expect(streamedPrompt?.contains("trip to paris") == true)
         // The marker/header proves injection happened (not just concatenation).
-        #expect(streamedPrompt?.contains("Relevant context from earlier conversations:") == true)
+        #expect(streamedPrompt?.contains("Background from earlier chats (use only if directly relevant to the question; otherwise ignore):") == true)
         #expect(streamedPrompt?.contains("what should I pack?") == true)
 
         // The on-screen bubble stays RAW.
@@ -131,7 +131,7 @@ struct ConversationEngineTests {
         let streamedPrompt = provider.session.contextEntries
             .first(where: { $0.kind == .userPrompt })?.text
         #expect(streamedPrompt == "plain prompt")
-        #expect(streamedPrompt?.contains("Relevant context from earlier conversations:") == false)
+        #expect(streamedPrompt?.contains("Background from earlier chats (use only if directly relevant to the question; otherwise ignore):") == false)
         #expect(engine.messages.first(where: { $0.role == .user })?.text == "plain prompt")
     }
 
@@ -150,7 +150,7 @@ struct ConversationEngineTests {
         let streamedPrompt = provider.session.contextEntries
             .first(where: { $0.kind == .userPrompt })?.text
         #expect(streamedPrompt == "plain prompt")
-        #expect(streamedPrompt?.contains("Relevant context from earlier conversations:") == false)
+        #expect(streamedPrompt?.contains("Background from earlier chats (use only if directly relevant to the question; otherwise ignore):") == false)
         #expect(engine.messages.first(where: { $0.role == .user })?.text == "plain prompt")
     }
 }

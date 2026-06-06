@@ -9,7 +9,7 @@ import Foundation
 public enum MemoryContextBlock {
     private static let openMarker = "\u{27E6}memory\u{27E7}"      // ⟦memory⟧
     private static let closeMarker = "\u{27E6}/memory\u{27E7}"   // ⟦/memory⟧
-    private static let header = "Relevant context from earlier conversations:"
+    private static let header = "Background from earlier chats (use only if directly relevant to the question; otherwise ignore):"
 
     /// Renders a single hit. Factored out of `MemorySearchTool` so the tool and auto-injection
     /// agree on formatting. Saved notes (model-curated facts) render differently from

@@ -11,6 +11,9 @@ struct SupportingTypesTests {
         #expect(s.instructions == nil)
         #expect(s.temperature == nil)
         #expect(s.maximumResponseTokens == nil)
+        // Auto-RAG precision: a single strong match, filtered at a higher threshold.
+        #expect(s.memoryRetrievalTopK == 1)
+        #expect(s.memoryRetrievalThreshold == 0.5)
     }
     @Test func chatErrorEquatable() {
         #expect(ChatError.contextOverflow == ChatError.contextOverflow)
