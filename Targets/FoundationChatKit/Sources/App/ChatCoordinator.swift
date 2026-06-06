@@ -24,6 +24,10 @@ public final class ChatCoordinator {
     /// after a turn to persist model-curated facts. `nil` when memory is off.
     private var memoryWriteBuffer: MemoryWriteBuffer?
 
+    /// Upper bound on facts auto-extracted and persisted per turn (Plan 9): bounds the post-turn
+    /// memory growth from a single exchange regardless of how many the model proposes.
+    private static let maxAutoExtractedFactsPerTurn = 3
+
     public init(
         provider: any ChatModelProvider,
         store: ConversationStore,
@@ -111,11 +115,13 @@ public final class ChatCoordinator {
         // so draining the field afterward could hit the wrong buffer (facts lost/misrouted).
         let pendingBuffer = memoryWriteBuffer
         await engine.send(text)
+        // The final assistant reply for this turn — used by both titling and auto-extraction below.
+        let finalAssistantReply = engine.messages.last(where: { $0.role == .assistant })?.text
         // Title only after a genuinely completed first exchange (no error, non-empty reply),
         // never clobbering a user-renamed conversation, and only if it still exists.
         if isFirstExchange,
            engine.lastError == nil,
-           let assistantText = engine.messages.last(where: { $0.role == .assistant })?.text,
+           let assistantText = finalAssistantReply,
            !assistantText.isEmpty {
             let seed = TitleSeed(userText: text, assistantText: assistantText)
             if let title = await provider.generateTitle(forFirstExchange: seed),
@@ -132,6 +138,17 @@ public final class ChatCoordinator {
             // buffer captured before the await, not the (possibly reassigned) field.
             if let buffer = pendingBuffer {
                 for fact in await buffer.drain() { memory.saveNote(fact) }
+            }
+            // Proactive auto-extraction (Plan 9): off the hot path (the reply is already rendered,
+            // like titling), gated by the setting. Reuses the final assistant reply captured before
+            // the long `await` (mirroring the buffer discipline), then persists each salient fact.
+            if settings.autoExtractMemories,
+               let assistantReply = finalAssistantReply,
+               !assistantReply.isEmpty,
+               let facts = await provider.extractMemories(userText: text, assistantText: assistantReply) {
+                for fact in facts.prefix(Self.maxAutoExtractedFactsPerTurn) {
+                    memory.saveNoteIfNovel(fact)
+                }
             }
         }
     }

@@ -121,7 +121,8 @@ struct ChatCoordinatorTests {
     }
 
     @MainActor
-    private func makeWithMemory() throws -> (ChatCoordinator, MockModelProvider, MemoryStore) {
+    private func makeWithMemory(autoExtract: Bool = true) throws
+        -> (ChatCoordinator, MockModelProvider, MemoryStore) {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: Conversation.self, Message.self, MemoryNote.self,
                                            configurations: config)
@@ -130,7 +131,8 @@ struct ChatCoordinatorTests {
         let memory = MemoryStore(context: context, embedder: MockEmbedder())
         let provider = MockModelProvider()
         let coord = ChatCoordinator(provider: provider, store: store,
-                                    settings: GenerationSettings(instructions: "sys"),
+                                    settings: GenerationSettings(instructions: "sys",
+                                                                 autoExtractMemories: autoExtract),
                                     modelVersionTag: "v1", memory: memory,
                                     now: { Date(timeIntervalSince1970: 0) })
         return (coord, provider, memory)
@@ -166,5 +168,50 @@ struct ChatCoordinatorTests {
         coord.newConversation()
         await coord.send("remember my plans")
         #expect(memory.snapshot().contains { $0.source == .note && $0.text == "trip to paris" })
+    }
+
+    /// Plan 9: with auto-extraction enabled (default), the model's scripted salient facts are
+    /// persisted as `.note` records after the reply renders — no explicit `saveMemory` needed.
+    @Test func sendAutoExtractsSalientFactsToNotes() async throws {
+        let (coord, provider, memory) = try makeWithMemory()
+        provider.session.scriptedSnapshots = ["ok"]
+        provider.extractedMemories = ["User is planning a trip to Lisbon"]
+        coord.newConversation()
+        await coord.send("I'm planning a trip to Lisbon")
+        #expect(memory.snapshot().contains {
+            $0.source == .note && $0.text == "User is planning a trip to Lisbon"
+        })
+        // The load-bearing contract: the user text and the FINAL assistant reply reach the provider.
+        #expect(provider.capturedExtractInput?.userText == "I'm planning a trip to Lisbon")
+        #expect(provider.capturedExtractInput?.assistantText == "ok")
+    }
+
+    /// With the setting off, the same scripted facts are never persisted — and the gate
+    /// short-circuits so the provider is never even asked to extract.
+    @Test func sendDoesNotAutoExtractWhenSettingOff() async throws {
+        let (coord, provider, memory) = try makeWithMemory(autoExtract: false)
+        provider.session.scriptedSnapshots = ["ok"]
+        provider.extractedMemories = ["User is planning a trip to Lisbon"]
+        coord.newConversation()
+        await coord.send("I'm planning a trip to Lisbon")
+        #expect(!memory.snapshot().contains {
+            $0.source == .note && $0.text == "User is planning a trip to Lisbon"
+        })
+        #expect(provider.capturedExtractInput == nil)
+    }
+
+    /// De-dup across turns: the same fact extracted on two turns yields exactly ONE note
+    /// (auto-extraction routes through `saveNoteIfNovel`).
+    @Test func sendAutoExtractDeduplicatesAcrossTurns() async throws {
+        let (coord, provider, memory) = try makeWithMemory()
+        provider.session.scriptedSnapshots = ["ok"]
+        provider.extractedMemories = ["User is planning a trip to Lisbon"]
+        coord.newConversation()
+        await coord.send("I'm planning a trip to Lisbon")
+        await coord.send("Did I mention my Lisbon trip")
+        let matches = memory.snapshot().filter {
+            $0.source == .note && $0.text == "User is planning a trip to Lisbon"
+        }
+        #expect(matches.count == 1)
     }
 }

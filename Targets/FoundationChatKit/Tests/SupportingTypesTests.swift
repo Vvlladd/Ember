@@ -14,6 +14,8 @@ struct SupportingTypesTests {
         // Auto-RAG precision: a single strong match, filtered at a higher threshold.
         #expect(s.memoryRetrievalTopK == 1)
         #expect(s.memoryRetrievalThreshold == 0.5)
+        // Plan 9: proactive auto-extraction of salient user facts is on by default.
+        #expect(s.autoExtractMemories == true)
     }
     @Test func chatErrorEquatable() {
         #expect(ChatError.contextOverflow == ChatError.contextOverflow)
