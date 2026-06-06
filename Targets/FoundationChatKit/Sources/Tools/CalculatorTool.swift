@@ -5,7 +5,7 @@ import FoundationModels
 /// Malformed input returns a short corrective string (not a throw) so the model can recover.
 public struct CalculatorTool: Tool {
     public let name = "calculator"
-    public let description = "Evaluate an arithmetic expression with + - * / and parentheses."
+    public let description = "Evaluate an arithmetic expression. Call ONLY when the user explicitly asks for a calculation or math result."
 
     @Generable
     public struct Arguments {
