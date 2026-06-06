@@ -12,10 +12,16 @@ public enum MemoryContextBlock {
     private static let header = "Relevant context from earlier conversations:"
 
     /// Renders a single hit. Factored out of `MemorySearchTool` so the tool and auto-injection
-    /// agree on formatting. (Task 4 will extend this to render saved notes differently.)
+    /// agree on formatting. Saved notes (model-curated facts) render differently from
+    /// conversation snippets.
     public static func formatHit(_ hit: MemoryHit) -> String {
-        let who = hit.record.role == .user ? "You" : "Assistant"
-        return "From '\(hit.record.conversationTitle)' — \(who): \(hit.record.text)"
+        switch hit.record.source {
+        case .note:
+            return "Saved memory: \(hit.record.text)"
+        case .conversation:
+            let who = hit.record.role == .user ? "You" : "Assistant"
+            return "From '\(hit.record.conversationTitle)' — \(who): \(hit.record.text)"
+        }
     }
 
     /// The full marker-delimited block: open marker, header, one `- ` bullet per hit, close marker —

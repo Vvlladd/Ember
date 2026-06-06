@@ -20,6 +20,9 @@ public final class ChatCoordinator {
     private let modelVersionTag: String
     private let now: () -> Date
     private let memory: MemoryStore?
+    /// The write buffer for the CURRENT engine's `saveMemory` tool. `send` drains this same instance
+    /// after a turn to persist model-curated facts. `nil` when memory is off.
+    private var memoryWriteBuffer: MemoryWriteBuffer?
 
     public init(
         provider: any ChatModelProvider,
@@ -120,6 +123,11 @@ public final class ChatCoordinator {
         reload()
         if let memory {
             for message in convo.orderedMessages { memory.index(message) }
+            // Persist any facts the model decided to save this turn. These become retrievable from
+            // the next engine build (consistent with the point-in-time snapshot model).
+            if let buffer = memoryWriteBuffer {
+                for fact in await buffer.drain() { memory.saveNote(fact) }
+            }
         }
     }
 
@@ -137,6 +145,7 @@ public final class ChatCoordinator {
         let canUseTranscript = convo.transcriptData != nil && convo.modelVersionTag == tag
         var tools = Toolbox.defaultTools()
         var retrieval: ConversationEngine.MemoryRetrieval? = nil
+        memoryWriteBuffer = nil
         if let memory {
             let excluded = Set(convo.orderedMessages.map(\.id))
             let snapshot = memory.snapshot()                 // build ONCE, reuse for tool + retriever
@@ -145,6 +154,11 @@ public final class ChatCoordinator {
             let threshold = settings.memoryRetrievalThreshold
             // Retained fallback: the model can still explicitly call searchMemory.
             tools.append(MemorySearchTool(embedder: embedder, snapshot: snapshot, excludedIDs: excluded))
+            // Write seam: the model can deliberately persist a curated fact. The tool buffers facts;
+            // `send` drains THIS instance after the turn to write notes.
+            let buffer = MemoryWriteBuffer()
+            memoryWriteBuffer = buffer
+            tools.append(SaveMemoryTool(buffer: buffer))
             // Automatic retrieve-before-generate: a Sendable closure over only Sendable values.
             retrieval = ConversationEngine.MemoryRetrieval { query in
                 guard let qv = embedder.embed(query) else { return [] }

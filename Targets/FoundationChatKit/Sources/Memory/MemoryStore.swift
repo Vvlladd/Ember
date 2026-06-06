@@ -27,6 +27,18 @@ public final class MemoryStore {
         cachedSnapshot = nil  // a vector was written — invalidate the cache
     }
 
+    /// Persist a model-curated fact as a `MemoryNote`. Trims; ignores empty; embeds and stores the
+    /// vector so the note is retrievable (auto-RAG + searchMemory) in FUTURE conversations.
+    /// Invalidates the snapshot cache so the next read includes the new note.
+    public func saveNote(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let vector = embedder.embed(trimmed) else { return }
+        let note = MemoryNote(text: trimmed, createdAt: Date(), embedding: Self.archive(vector))
+        context.insert(note)
+        try? context.save()
+        cachedSnapshot = nil  // a note was written — invalidate the cache
+    }
+
     /// One-time embedding of all persisted messages lacking a vector.
     public func backfill() {
         let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
@@ -38,7 +50,7 @@ public final class MemoryStore {
     public func snapshot() -> [MemoryRecord] {
         if let cachedSnapshot { return cachedSnapshot }
         let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
-        let records = all.compactMap { message -> MemoryRecord? in
+        var records = all.compactMap { message -> MemoryRecord? in
             guard let data = message.embedding, message.role != .systemNotice else { return nil }
             return MemoryRecord(
                 messageID: message.id,
@@ -47,6 +59,19 @@ public final class MemoryStore {
                 role: message.role,
                 text: message.text,
                 vector: Self.unarchive(data)
+            )
+        }
+        let notes = (try? context.fetch(FetchDescriptor<MemoryNote>())) ?? []
+        records += notes.compactMap { note -> MemoryRecord? in
+            guard let data = note.embedding else { return nil }
+            return MemoryRecord(
+                messageID: note.id,
+                conversationID: note.id,
+                conversationTitle: "Saved memory",
+                role: .user,
+                text: note.text,
+                vector: Self.unarchive(data),
+                source: .note
             )
         }
         cachedSnapshot = records

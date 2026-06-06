@@ -123,7 +123,8 @@ struct ChatCoordinatorTests {
     @MainActor
     private func makeWithMemory() throws -> (ChatCoordinator, MockModelProvider, MemoryStore) {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: Conversation.self, Message.self, configurations: config)
+        let container = try ModelContainer(for: Conversation.self, Message.self, MemoryNote.self,
+                                           configurations: config)
         let context = ModelContext(container)
         let store = ConversationStore(context: context)
         let memory = MemoryStore(context: context, embedder: MockEmbedder())
@@ -146,5 +147,24 @@ struct ChatCoordinatorTests {
         coord.newConversation()
         await coord.send("trip to paris")
         #expect(memory.snapshot().contains { $0.text == "trip to paris" })
+    }
+
+    @Test func registersSaveMemoryTool() throws {
+        let (coord, provider, _) = try makeWithMemory()
+        coord.newConversation()
+        #expect(provider.recordedTools.contains { $0.name == "saveMemory" })
+    }
+
+    /// End-to-end drain: the mock session invokes the REAL registered `SaveMemoryTool.call`
+    /// during the turn (buffering the fact), and the coordinator drains the buffer after
+    /// `send`, persisting it via `MemoryStore.saveNote`. Asserts the note then appears in
+    /// the snapshot as a `.note` source — proving the `buffer.drain() -> saveNote` wiring.
+    @Test func sendDrainsBufferedFactsToNotes() async throws {
+        let (coord, provider, memory) = try makeWithMemory()
+        provider.session.scriptedSnapshots = ["ok"]
+        provider.session.scriptedSaveMemoryFacts = ["trip to paris"]
+        coord.newConversation()
+        await coord.send("remember my plans")
+        #expect(memory.snapshot().contains { $0.source == .note && $0.text == "trip to paris" })
     }
 }

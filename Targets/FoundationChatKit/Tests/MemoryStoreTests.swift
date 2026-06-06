@@ -19,7 +19,8 @@ struct MemoryStoreTests {
 
     private func makeStore() throws -> (MemoryStore, ConversationStore) {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: Conversation.self, Message.self, configurations: config)
+        let container = try ModelContainer(for: Conversation.self, Message.self, MemoryNote.self,
+                                           configurations: config)
         let context = ModelContext(container)
         return (MemoryStore(context: context, embedder: MockEmbedder()),
                 ConversationStore(context: context))
@@ -87,6 +88,21 @@ struct MemoryStoreTests {
         let fresh = mem.snapshot()
         #expect(mem.snapshotBuildCount == 2)
         #expect(fresh.count == 2)
+    }
+
+    @Test func saveNoteAppearsInSnapshotAsNote() throws {
+        let (mem, _) = try makeStore()
+        mem.saveNote("planning a trip to paris")
+        let snap = mem.snapshot()
+        #expect(snap.contains { $0.source == .note && $0.text == "planning a trip to paris" })
+    }
+
+    @Test func saveNoteIgnoresEmptyAndTrims() throws {
+        let (mem, _) = try makeStore()
+        mem.saveNote("   ")
+        #expect(mem.snapshot().isEmpty)
+        mem.saveNote("  trip to paris  ")
+        #expect(mem.snapshot().contains { $0.text == "trip to paris" && $0.source == .note })
     }
 
     @Test func indexEarlyReturnDoesNotInvalidateCache() throws {
