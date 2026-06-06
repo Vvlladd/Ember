@@ -30,7 +30,7 @@ Ember runs entirely on-device (no servers, no network, no API keys). It feels li
 **On-device intelligence**
 - **Tool calling** — three pure, on-device tools (`currentDateTime`, `calculator`, `unitConverter`) built on the FoundationModels `Tool` protocol with `@Generable`/`@Guide` arguments. No network, no permissions.
 - **Guided generation** — model-generated conversation titles (`respond(to:generating:)`), with a deterministic fallback.
-- **Conversation memory (RAG)** — **automatic** retrieve-before-generate: every turn embeds the prompt and injects the top-k relevant snippets from *past conversations* (on-device `NLEmbedding` cosine) into what the model sees, so recall no longer depends on the model choosing a tool. The `searchMemory` tool is retained as a fallback, and a `saveMemory` write tool lets the model deliberately persist curated facts. Every retrieved memory is visible in the inspector (teal **MEMORY**) and counted in the budget.
+- **Conversation memory (RAG)** — **automatic** retrieve-before-generate: every turn embeds the prompt and injects the top-k relevant snippets from *past conversations* (on-device `NLEmbedding` cosine) into what the model sees, so recall no longer depends on the model choosing a tool. The `searchMemory` tool is retained as a fallback, and a `saveMemory` write tool lets the model deliberately persist curated facts. The app also **automatically extracts durable user facts after each turn** (guided generation) and stores them as deduped curated notes, so recall rides the reliable curated-note path rather than weak message embeddings (gated by `autoExtractMemories`). Every retrieved memory is visible in the inspector (teal **MEMORY**) and counted in the budget.
 - **Advanced budgeting** — model-summarized context compaction (with a deterministic keep-first-last fallback) and reserve-for-reply: Ember compacts *proactively* before a turn would overflow, so replies always have headroom.
 
 ---
@@ -126,7 +126,7 @@ The `MockModelProvider`/`MockEmbedder` doubles mean the entire engine, tools, me
 
 ---
 
-## 🗺 Roadmap status — **Phases 1–4 complete**
+## 🗺 Roadmap status — **Phases 1–5 complete**
 
 | Phase | Theme | Status |
 |------|-------|--------|
@@ -134,10 +134,11 @@ The `MockModelProvider`/`MockEmbedder` doubles mean the entire engine, tools, me
 | **2** | Tool calling (`Tool` + `@Generable`/`@Guide`) · guided/structured generation | ✅ Built |
 | **3** | RAG (on-device conversation memory) · advanced budgeting (model-summarized compaction, reserve-for-reply) | ✅ Built |
 | **4** | Memory upgrades — **automatic** retrieve-before-generate · embedder/snapshot caching · model-decided saves (`saveMemory`) | ✅ Built |
+| **5** | Proactive memory — **automatic** post-turn extraction of durable user facts → deduped curated `MemoryNote`s (guided generation; `saveNoteIfNovel`; gated by `autoExtractMemories`) | ✅ Built |
 
 Each phase was developed spec-first (see `docs/superpowers/`) and verified end-to-end on the iOS 26 simulator — including a real on-device tool call (`calculator` → 8,673,516) and cross-conversation memory recall (`searchMemory` → "Lisbon").
 
-Possible future work (beyond the current roadmap): attachments/images, iCloud/CloudKit sync, multilingual embeddings, and richer compaction strategies.
+Possible future work (beyond the current roadmap): **hybrid lexical + semantic retrieval** (Plan 8, documented), attachments/images, iCloud/CloudKit sync, multilingual embeddings, and richer compaction strategies.
 
 ---
 
