@@ -106,6 +106,10 @@ public final class ChatCoordinator {
         isProcessing = true
         defer { isProcessing = false }
         let isFirstExchange = convo.orderedMessages.isEmpty
+        // Capture THIS turn's write buffer before the long await: a conversation switch
+        // (select/newConversation → makeEngine) during `send` reassigns `memoryWriteBuffer`,
+        // so draining the field afterward could hit the wrong buffer (facts lost/misrouted).
+        let pendingBuffer = memoryWriteBuffer
         await engine.send(text)
         // Title only after a genuinely completed first exchange (no error, non-empty reply),
         // never clobbering a user-renamed conversation, and only if it still exists.
@@ -124,8 +128,9 @@ public final class ChatCoordinator {
         if let memory {
             for message in convo.orderedMessages { memory.index(message) }
             // Persist any facts the model decided to save this turn. These become retrievable from
-            // the next engine build (consistent with the point-in-time snapshot model).
-            if let buffer = memoryWriteBuffer {
+            // the next engine build (consistent with the point-in-time snapshot model). Drain the
+            // buffer captured before the await, not the (possibly reassigned) field.
+            if let buffer = pendingBuffer {
                 for fact in await buffer.drain() { memory.saveNote(fact) }
             }
         }

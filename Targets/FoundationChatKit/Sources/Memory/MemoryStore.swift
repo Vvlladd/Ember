@@ -27,13 +27,19 @@ public final class MemoryStore {
         cachedSnapshot = nil  // a vector was written — invalidate the cache
     }
 
-    /// Persist a model-curated fact as a `MemoryNote`. Trims; ignores empty; embeds and stores the
-    /// vector so the note is retrievable (auto-RAG + searchMemory) in FUTURE conversations.
+    /// Persist a model-curated fact as a `MemoryNote`. Trims; ignores empty. ALWAYS persists a
+    /// non-empty fact so `SaveMemoryTool`'s "Saved." is honest — even when embedding is unavailable
+    /// (non-Apple-Intelligence host, or OOV/empty-after-`@Guide` text). The embedding is optional:
+    /// when present the note is retrievable (auto-RAG + searchMemory) in FUTURE conversations; when
+    /// absent the note is still stored and visible/recoverable in `snapshot()` (scores 0 in cosine,
+    /// so it is harmlessly filtered out of search by the threshold).
     /// Invalidates the snapshot cache so the next read includes the new note.
     public func saveNote(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let vector = embedder.embed(trimmed) else { return }
-        let note = MemoryNote(text: trimmed, createdAt: Date(), embedding: Self.archive(vector))
+        guard !trimmed.isEmpty else { return }
+        let vector = embedder.embed(trimmed)   // may be nil if embedding is unavailable
+        let note = MemoryNote(text: trimmed, createdAt: Date(),
+                              embedding: vector.map { Self.archive($0) })
         context.insert(note)
         try? context.save()
         cachedSnapshot = nil  // a note was written — invalidate the cache
@@ -62,15 +68,14 @@ public final class MemoryStore {
             )
         }
         let notes = (try? context.fetch(FetchDescriptor<MemoryNote>())) ?? []
-        records += notes.compactMap { note -> MemoryRecord? in
-            guard let data = note.embedding else { return nil }
-            return MemoryRecord(
+        records += notes.map { note -> MemoryRecord in
+            MemoryRecord(
                 messageID: note.id,
                 conversationID: note.id,
                 conversationTitle: "Saved memory",
                 role: .user,
                 text: note.text,
-                vector: Self.unarchive(data),
+                vector: note.embedding.map { Self.unarchive($0) } ?? [],  // unembedded note: empty vector, never matches search
                 source: .note
             )
         }

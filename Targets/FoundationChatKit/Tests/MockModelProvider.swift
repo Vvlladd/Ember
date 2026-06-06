@@ -45,9 +45,17 @@ final class MockSessionHandle: ChatSessionHandle {
                     }
                 }
                 // Faithfully invoke the real registered saveMemory tool for any scripted facts.
+                // Surface (don't swallow) tool throws into the stream, matching how the surrounding
+                // code finishes the stream — so a future throw from SaveMemoryTool.call is visible.
                 for fact in self.scriptedSaveMemoryFacts {
                     if let save = self.registeredTools.first(where: { $0.name == "saveMemory" }) as? SaveMemoryTool {
-                        _ = try? await save.call(arguments: .init(fact: fact))
+                        do {
+                            _ = try await save.call(arguments: .init(fact: fact))
+                        } catch {
+                            self.isResponding = false
+                            continuation.finish(throwing: error)
+                            return
+                        }
                     }
                 }
                 if commits {
@@ -88,6 +96,9 @@ final class MockModelProvider: ChatModelProvider {
     var recordedTools: [any Tool] = []
     var titleResult: String?
     var summarizeResult: String?
+    /// Captures the most recent text passed to `summarize(_:)` so tests can assert what the
+    /// compactor fed into the summary (e.g. that recalled memory was excluded).
+    private(set) var capturedSummarizeInput: String?
 
     func tokenCount(for text: String) -> Int? { exactCounts ? text.count : nil }
     func exactTokenCount(for text: String) async -> Int? {
@@ -105,5 +116,5 @@ final class MockModelProvider: ChatModelProvider {
         return session
     }
     func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? { titleResult }
-    func summarize(_ text: String) async -> String? { summarizeResult }
+    func summarize(_ text: String) async -> String? { capturedSummarizeInput = text; return summarizeResult }
 }

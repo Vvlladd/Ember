@@ -26,4 +26,22 @@ struct ContextCompactorTests {
         let input = entries(3)
         #expect(await ContextCompactor.compact(input, keepingRecent: 4, using: p) == input)
     }
+
+    /// Recalled memory is mixed-provenance and re-injected fresh each turn, so it must NOT be folded
+    /// into the instructions-channel recap. The summary the compactor builds should contain the
+    /// older user/assistant text but NOT the `.retrievedMemory` entry's text.
+    @Test func excludesRetrievedMemoryFromSummaryInput() async {
+        let p = MockModelProvider(); p.summarizeResult = "RECAP"
+        let older: [ContextEntry] = [
+            ContextEntry(kind: .userPrompt, text: "USER_OLD"),
+            ContextEntry(kind: .retrievedMemory, text: "SECRET_MEMORY"),
+            ContextEntry(kind: .modelResponse, text: "ASSISTANT_OLD"),
+        ]
+        let recent = entries(4)
+        _ = await ContextCompactor.compact(older + recent, keepingRecent: 4, using: p)
+        let captured = p.capturedSummarizeInput ?? ""
+        #expect(captured.contains("USER_OLD"))
+        #expect(captured.contains("ASSISTANT_OLD"))
+        #expect(!captured.contains("SECRET_MEMORY"))
+    }
 }

@@ -105,6 +105,15 @@ struct MemoryStoreTests {
         #expect(mem.snapshot().contains { $0.text == "trip to paris" && $0.source == .note })
     }
 
+    /// "Saved." must be honest: a fact whose words the embedder does NOT know (so `embed` returns
+    /// nil) is STILL persisted and visible in `snapshot()` as a `.note`, rather than silently dropped.
+    @Test func saveNotePersistsEvenWhenEmbeddingUnavailable() throws {
+        let (mem, _) = try makeStore()
+        #expect(MockEmbedder().embed("zzz qqq") == nil)   // precondition: unembeddable text
+        mem.saveNote("zzz qqq")
+        #expect(mem.snapshot().contains { $0.source == .note && $0.text == "zzz qqq" })
+    }
+
     @Test func indexEarlyReturnDoesNotInvalidateCache() throws {
         let (mem, store) = try makeStore()
         let c = store.createConversation(now: Date(timeIntervalSince1970: 0))
