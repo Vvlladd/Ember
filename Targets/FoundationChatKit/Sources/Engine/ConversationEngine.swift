@@ -7,6 +7,14 @@ import Observation
 @MainActor
 @Observable
 public final class ConversationEngine {
+    /// Sendable seam the app injects to retrieve relevant memory before each turn. Returns the
+    /// top hits for a query; the engine augments the prompt with them (see `performTurn`). Default
+    /// `nil` keeps retrieval off, so existing call sites/tests are unaffected.
+    public struct MemoryRetrieval: Sendable {
+        public var retrieve: @Sendable (String) -> [MemoryHit]
+        public init(retrieve: @escaping @Sendable (String) -> [MemoryHit]) { self.retrieve = retrieve }
+    }
+
     /// Closures the app injects to durably persist a turn as it happens.
     public struct ConversationPersistence {
         public var recordMessage: @MainActor (ChatMessage) -> Void
@@ -40,6 +48,7 @@ public final class ConversationEngine {
     private var settings: GenerationSettings
     private let calculator: TokenBudgetCalculator
     private let persistence: ConversationPersistence?
+    private let memoryRetrieval: MemoryRetrieval?
     private let now: () -> Date
     private var turnTask: Task<Void, Never>?
 
@@ -50,6 +59,7 @@ public final class ConversationEngine {
         restoringEntries: [ContextEntry]? = nil,
         tools: [any Tool] = [],
         persistence: ConversationPersistence? = nil,
+        memoryRetrieval: MemoryRetrieval? = nil,
         calculator: TokenBudgetCalculator = TokenBudgetCalculator(),
         now: @escaping () -> Date = Date.init
     ) {
@@ -57,6 +67,7 @@ public final class ConversationEngine {
         self.settings = settings
         self.calculator = calculator
         self.persistence = persistence
+        self.memoryRetrieval = memoryRetrieval
         self.now = now
         self.tools = tools
         self.toolAccounting = Toolbox.accountingMetadata(for: tools)
@@ -89,6 +100,12 @@ public final class ConversationEngine {
 
         await compactIfNeeded(for: prompt)
 
+        // Retrieve-before-generate: augment the prompt sent to the model with relevant memory,
+        // while the on-screen bubble and persisted row keep the RAW prompt (clean UX). The
+        // augmented text lands in the transcript, so it's budgeted and shown in the inspector.
+        let hits = memoryRetrieval?.retrieve(prompt) ?? []
+        let augmented = MemoryContextBlock.augment(prompt: prompt, with: hits)
+
         let userMessage = ChatMessage(role: .user, text: prompt, createdAt: now())
         messages.append(userMessage)
         persistence?.recordMessage(userMessage)
@@ -98,7 +115,7 @@ public final class ConversationEngine {
         let assistantIndex = messages.count - 1
 
         do {
-            for try await snapshot in session.stream(prompt: prompt) {
+            for try await snapshot in session.stream(prompt: augmented) {
                 if Task.isCancelled { break }
                 messages[assistantIndex].text = snapshot
                 recomputeBudget(inFlight: snapshot)

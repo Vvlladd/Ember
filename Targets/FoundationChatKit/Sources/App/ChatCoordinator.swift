@@ -136,11 +136,21 @@ public final class ChatCoordinator {
         )
         let canUseTranscript = convo.transcriptData != nil && convo.modelVersionTag == tag
         var tools = Toolbox.defaultTools()
+        var retrieval: ConversationEngine.MemoryRetrieval? = nil
         if let memory {
             let excluded = Set(convo.orderedMessages.map(\.id))
-            tools.append(MemorySearchTool(embedder: memory.embedder,
-                                          snapshot: memory.snapshot(),
-                                          excludedIDs: excluded))
+            let snapshot = memory.snapshot()                 // build ONCE, reuse for tool + retriever
+            let embedder = memory.embedder
+            let topK = settings.memoryRetrievalTopK
+            let threshold = settings.memoryRetrievalThreshold
+            // Retained fallback: the model can still explicitly call searchMemory.
+            tools.append(MemorySearchTool(embedder: embedder, snapshot: snapshot, excludedIDs: excluded))
+            // Automatic retrieve-before-generate: a Sendable closure over only Sendable values.
+            retrieval = ConversationEngine.MemoryRetrieval { query in
+                guard let qv = embedder.embed(query) else { return [] }
+                return MemoryStore.search(snapshot, queryVector: qv, topK: topK,
+                                          threshold: threshold, excludingMessageIDs: excluded)
+            }
         }
         return ConversationEngine(
             provider: provider,
@@ -149,6 +159,7 @@ public final class ChatCoordinator {
             restoringEntries: canUseTranscript ? nil : store.contextEntries(for: convo),
             tools: tools,
             persistence: persistence,
+            memoryRetrieval: retrieval,
             now: now
         )
     }

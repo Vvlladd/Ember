@@ -84,4 +84,73 @@ struct ConversationEngineTests {
         await engine.send("hi")
         #expect(engine.messages.isEmpty)
     }
+
+    // MARK: - Automatic hybrid RAG (retrieve-before-generate)
+
+    private func parisHit() -> MemoryHit {
+        let record = MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                                  conversationTitle: "Trip", role: .user,
+                                  text: "trip to paris", vector: [1, 0, 0])
+        return MemoryHit(record: record, score: 0.9)
+    }
+
+    @Test func autoRAGInjectsRetrievedMemoryIntoStreamedPromptButNotBubble() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["pack a coat"]
+        let hit = parisHit()
+        let retrieval = ConversationEngine.MemoryRetrieval { _ in [hit] }
+        let engine = ConversationEngine(
+            provider: provider,
+            settings: GenerationSettings(instructions: "sys"),
+            memoryRetrieval: retrieval,
+            now: { Date(timeIntervalSince1970: 0) }
+        )
+        await engine.send("what should I pack?")
+
+        // The model received the AUGMENTED prompt (MockSessionHandle commits a .userPrompt
+        // entry equal to the streamed prompt).
+        let streamedPrompt = provider.session.contextEntries
+            .first(where: { $0.kind == .userPrompt })?.text
+        #expect(streamedPrompt?.contains("trip to paris") == true)
+        // The marker/header proves injection happened (not just concatenation).
+        #expect(streamedPrompt?.contains("Relevant context from earlier conversations:") == true)
+        #expect(streamedPrompt?.contains("what should I pack?") == true)
+
+        // The on-screen bubble stays RAW.
+        let userBubble = engine.messages.first(where: { $0.role == .user })
+        #expect(userBubble?.text == "what should I pack?")
+        #expect(userBubble?.text.contains("trip to paris") == false)
+    }
+
+    @Test func noRetrieverLeavesPromptRaw() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["ok"]
+        let engine = makeEngine(provider)  // no retriever
+        await engine.send("plain prompt")
+
+        let streamedPrompt = provider.session.contextEntries
+            .first(where: { $0.kind == .userPrompt })?.text
+        #expect(streamedPrompt == "plain prompt")
+        #expect(streamedPrompt?.contains("Relevant context from earlier conversations:") == false)
+        #expect(engine.messages.first(where: { $0.role == .user })?.text == "plain prompt")
+    }
+
+    @Test func emptyRetrievalLeavesPromptRaw() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["ok"]
+        let retrieval = ConversationEngine.MemoryRetrieval { _ in [] }
+        let engine = ConversationEngine(
+            provider: provider,
+            settings: GenerationSettings(instructions: "sys"),
+            memoryRetrieval: retrieval,
+            now: { Date(timeIntervalSince1970: 0) }
+        )
+        await engine.send("plain prompt")
+
+        let streamedPrompt = provider.session.contextEntries
+            .first(where: { $0.kind == .userPrompt })?.text
+        #expect(streamedPrompt == "plain prompt")
+        #expect(streamedPrompt?.contains("Relevant context from earlier conversations:") == false)
+        #expect(engine.messages.first(where: { $0.role == .user })?.text == "plain prompt")
+    }
 }
