@@ -45,4 +45,7 @@ public protocol ChatModelProvider: AnyObject {
     func generateTitle(forFirstExchange exchange: TitleSeed) async -> String?
     /// Summarize free text via the model (throwaway session). Returns nil when unavailable/failed.
     func summarize(_ text: String) async -> String?
+    /// Extract durable USER facts from a completed exchange via guided generation. Returns nil on
+    /// failure/unavailable (best-effort); an empty array means nothing worth saving.
+    func extractMemories(userText: String, assistantText: String) async -> [String]?
 }

@@ -99,6 +99,10 @@ final class MockModelProvider: ChatModelProvider {
     /// Captures the most recent text passed to `summarize(_:)` so tests can assert what the
     /// compactor fed into the summary (e.g. that recalled memory was excluded).
     private(set) var capturedSummarizeInput: String?
+    /// Scripted result returned by `extractMemories(...)` (nil scripts the failure path).
+    var extractedMemories: [String]? = []
+    /// Captures the most recent (userText, assistantText) passed to `extractMemories(...)`.
+    private(set) var capturedExtractInput: (userText: String, assistantText: String)?
 
     func tokenCount(for text: String) -> Int? { exactCounts ? text.count : nil }
     func exactTokenCount(for text: String) async -> Int? {
@@ -117,4 +121,8 @@ final class MockModelProvider: ChatModelProvider {
     }
     func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? { titleResult }
     func summarize(_ text: String) async -> String? { capturedSummarizeInput = text; return summarizeResult }
+    func extractMemories(userText: String, assistantText: String) async -> [String]? {
+        capturedExtractInput = (userText, assistantText)
+        return extractedMemories
+    }
 }

@@ -101,6 +101,11 @@ public final class FoundationModelProvider: ChatModelProvider {
             return nil
         }
     }
+
+    public func extractMemories(userText: String, assistantText: String) async -> [String]? {
+        guard case .available = availability else { return nil }
+        return await MemoryExtractor.generate(userText: userText, assistantText: assistantText)
+    }
 }
 
 @MainActor
