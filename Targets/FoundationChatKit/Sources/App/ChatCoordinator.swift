@@ -220,7 +220,8 @@ public final class ChatCoordinator {
                     .map { String(format: "%.3f:%@", $0.score, String($0.record.text.prefix(40))) }
                     .joined(separator: " | ")
                 let hits = MemoryStore.search(snapshot, queryVector: qv, topK: topK,
-                                              threshold: threshold, excludingMessageIDs: excluded)
+                                              threshold: threshold, excludingMessageIDs: excluded,
+                                              preferNotes: true)
                 EmberLog.retrieval.info("retrieve: query=\"\(query, privacy: .public)\" → \(hits.count, privacy: .public)/\(topK, privacy: .public) hit(s) ≥ \(threshold, privacy: .public). best3=[\(topPreview, privacy: .public)]")
                 return hits
             }
