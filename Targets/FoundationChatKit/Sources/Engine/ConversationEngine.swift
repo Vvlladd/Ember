@@ -1,6 +1,7 @@
 import Foundation
 import FoundationModels
 import Observation
+import os
 
 /// Owns one conversation's live session and drives the turn lifecycle. MVVM view model:
 /// the SwiftUI layer binds to `messages`, `isResponding`, `budget`, `lastError`.
@@ -105,6 +106,9 @@ public final class ConversationEngine {
         // augmented text lands in the transcript, so it's budgeted and shown in the inspector.
         let hits = memoryRetrieval?.retrieve(prompt) ?? []
         let augmented = MemoryContextBlock.augment(prompt: prompt, with: hits)
+        if memoryRetrieval != nil {
+            EmberLog.turn.info("performTurn: \(hits.count, privacy: .public) memory hit(s) → prompt \(augmented == prompt ? "NOT augmented" : "augmented", privacy: .public)")
+        }
 
         let userMessage = ChatMessage(role: .user, text: prompt, createdAt: now())
         messages.append(userMessage)
@@ -129,6 +133,7 @@ public final class ConversationEngine {
             finalizeAssistant(at: assistantIndex)
             await refreshExactBudget()
         } catch {
+            EmberLog.turn.error("performTurn: stream threw — \(String(describing: error), privacy: .public)")
             await handle(error, assistantIndex: assistantIndex)
         }
     }

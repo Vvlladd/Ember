@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import os
 
 /// Extracts durable USER facts from a completed exchange via guided generation, in a throwaway
 /// session so it never pollutes the chat transcript. Returns nil on any failure (caller falls
@@ -30,8 +31,10 @@ enum MemoryExtractor {
             let facts = response.content.facts
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
+            EmberLog.extraction.info("MemoryExtractor: generated \(facts.count, privacy: .public) fact(s): [\(facts.joined(separator: " || "), privacy: .public)]")
             return facts
         } catch {
+            EmberLog.extraction.error("MemoryExtractor: generation FAILED — \(String(describing: error), privacy: .public)")
             return nil
         }
     }

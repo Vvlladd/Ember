@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import os
 
 @MainActor
 public final class FoundationModelProvider: ChatModelProvider {
@@ -103,7 +104,10 @@ public final class FoundationModelProvider: ChatModelProvider {
     }
 
     public func extractMemories(userText: String, assistantText: String) async -> [String]? {
-        guard case .available = availability else { return nil }
+        guard case .available = availability else {
+            EmberLog.extraction.notice("extractMemories: model unavailable — returning nil")
+            return nil
+        }
         return await MemoryExtractor.generate(userText: userText, assistantText: assistantText)
     }
 }
@@ -157,6 +161,7 @@ final class FoundationModelSession: ChatSessionHandle {
     func encodedTranscript() -> Data? { try? JSONEncoder().encode(session.transcript) }
 
     static func map(_ error: Error) -> Error {
+        EmberLog.turn.error("session error (raw): \(String(describing: error), privacy: .public)")
         if let toolError = error as? LanguageModelSession.ToolCallError {
             return ChatError.toolFailed(tool: toolError.tool.name,
                                         message: String(describing: toolError.underlyingError))

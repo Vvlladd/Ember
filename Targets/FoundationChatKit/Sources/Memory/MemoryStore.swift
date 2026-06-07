@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import os
 
 /// Embeds messages on save (and via one-time backfill) and serves brute-force cosine retrieval.
 @MainActor
@@ -43,6 +44,7 @@ public final class MemoryStore {
         context.insert(note)
         try? context.save()
         cachedSnapshot = nil  // a note was written — invalidate the cache
+        EmberLog.memory.info("saveNote: persisted (embedded=\(vector != nil ? "yes" : "NO", privacy: .public)) \"\(trimmed, privacy: .public)\"")
     }
 
     /// Cosine similarity at or above which a candidate note is treated as a near-duplicate of an
@@ -64,13 +66,16 @@ public final class MemoryStore {
         // 1) Normalized-text equality: lowercase + collapse internal whitespace.
         let normalizedCandidate = Self.normalizedForDedup(trimmed)
         if notes.contains(where: { Self.normalizedForDedup($0.text) == normalizedCandidate }) {
+            EmberLog.memory.notice("saveNoteIfNovel: REJECT (exact text match) \"\(trimmed, privacy: .public)\"")
             return false
         }
 
         // 2) Cosine near-duplicate: only meaningful when both sides actually embed.
         if let candidateVector = embedder.embed(trimmed) {
             for note in notes where !note.vector.isEmpty {
-                if Vector.cosineSimilarity(candidateVector, note.vector) >= Self.noteDuplicateCosineThreshold {
+                let sim = Vector.cosineSimilarity(candidateVector, note.vector)
+                if sim >= Self.noteDuplicateCosineThreshold {
+                    EmberLog.memory.notice("saveNoteIfNovel: REJECT (cosine \(sim, privacy: .public) ≥ \(Self.noteDuplicateCosineThreshold, privacy: .public) vs \"\(note.text, privacy: .public)\") new=\"\(trimmed, privacy: .public)\"")
                     return false
                 }
             }

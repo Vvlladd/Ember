@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// The app's brain: owns the model provider, the SwiftData store, the conversation list,
 /// the current selection, and the live `ConversationEngine`. Persistence is injected into
@@ -114,9 +115,15 @@ public final class ChatCoordinator {
         // (select/newConversation → makeEngine) during `send` reassigns `memoryWriteBuffer`,
         // so draining the field afterward could hit the wrong buffer (facts lost/misrouted).
         let pendingBuffer = memoryWriteBuffer
+        EmberLog.turn.info("send: turn START — userLen=\(text.count, privacy: .public), firstExchange=\(isFirstExchange, privacy: .public), memory=\(self.memory != nil ? "ON" : "OFF", privacy: .public)")
         await engine.send(text)
         // The final assistant reply for this turn — used by both titling and auto-extraction below.
         let finalAssistantReply = engine.messages.last(where: { $0.role == .assistant })?.text
+        if let err = engine.lastError {
+            EmberLog.turn.error("send: turn ended with ERROR — \(String(describing: err), privacy: .public)")
+        } else {
+            EmberLog.turn.info("send: turn OK — replyLen=\(finalAssistantReply?.count ?? -1, privacy: .public)")
+        }
         // Title only after a genuinely completed first exchange (no error, non-empty reply),
         // never clobbering a user-renamed conversation, and only if it still exists.
         if isFirstExchange,
@@ -133,22 +140,38 @@ public final class ChatCoordinator {
         reload()
         if let memory {
             for message in convo.orderedMessages { memory.index(message) }
+            EmberLog.memory.info("send: indexed \(convo.orderedMessages.count, privacy: .public) message(s)")
             // Persist any facts the model decided to save this turn. These become retrievable from
             // the next engine build (consistent with the point-in-time snapshot model). Drain the
             // buffer captured before the await, not the (possibly reassigned) field.
             if let buffer = pendingBuffer {
-                for fact in await buffer.drain() { memory.saveNote(fact) }
+                let drained = await buffer.drain()
+                if !drained.isEmpty {
+                    EmberLog.memory.info("send: draining \(drained.count, privacy: .public) explicit saveMemory fact(s)")
+                }
+                for fact in drained {
+                    EmberLog.memory.info("send: saveNote(explicit) \"\(fact, privacy: .public)\"")
+                    memory.saveNote(fact)
+                }
             }
             // Proactive auto-extraction (Plan 9): off the hot path (the reply is already rendered,
             // like titling), gated by the setting. Reuses the final assistant reply captured before
             // the long `await` (mirroring the buffer discipline), then persists each salient fact.
             if settings.autoExtractMemories,
                let assistantReply = finalAssistantReply,
-               !assistantReply.isEmpty,
-               let facts = await provider.extractMemories(userText: text, assistantText: assistantReply) {
-                for fact in facts.prefix(Self.maxAutoExtractedFactsPerTurn) {
-                    memory.saveNoteIfNovel(fact)
+               !assistantReply.isEmpty {
+                let facts = await provider.extractMemories(userText: text, assistantText: assistantReply)
+                if let facts {
+                    EmberLog.extraction.info("auto-extract: model proposed \(facts.count, privacy: .public) fact(s) (cap \(Self.maxAutoExtractedFactsPerTurn, privacy: .public))")
+                    for fact in facts.prefix(Self.maxAutoExtractedFactsPerTurn) {
+                        let saved = memory.saveNoteIfNovel(fact)
+                        EmberLog.extraction.info("auto-extract: \(saved ? "SAVED" : "skipped(dup)", privacy: .public) \"\(fact, privacy: .public)\"")
+                    }
+                } else {
+                    EmberLog.extraction.notice("auto-extract: extractMemories returned nil (unavailable or generation failed)")
                 }
+            } else if settings.autoExtractMemories {
+                EmberLog.extraction.notice("auto-extract: skipped — empty assistant reply")
             }
         }
     }
@@ -174,6 +197,8 @@ public final class ChatCoordinator {
             let embedder = memory.embedder
             let topK = settings.memoryRetrievalTopK
             let threshold = settings.memoryRetrievalThreshold
+            let noteCount = snapshot.filter { $0.source == .note }.count
+            EmberLog.retrieval.info("makeEngine: memory ON — snapshot=\(snapshot.count, privacy: .public) (notes=\(noteCount, privacy: .public)), excluded=\(excluded.count, privacy: .public), topK=\(topK, privacy: .public), threshold=\(threshold, privacy: .public)")
             // Retained fallback: the model can still explicitly call searchMemory.
             tools.append(MemorySearchTool(embedder: embedder, snapshot: snapshot, excludedIDs: excluded))
             // Write seam: the model can deliberately persist a curated fact. The tool buffers facts;
@@ -183,9 +208,21 @@ public final class ChatCoordinator {
             tools.append(SaveMemoryTool(buffer: buffer))
             // Automatic retrieve-before-generate: a Sendable closure over only Sendable values.
             retrieval = ConversationEngine.MemoryRetrieval { query in
-                guard let qv = embedder.embed(query) else { return [] }
-                return MemoryStore.search(snapshot, queryVector: qv, topK: topK,
-                                          threshold: threshold, excludingMessageIDs: excluded)
+                guard let qv = embedder.embed(query) else {
+                    EmberLog.retrieval.error("retrieve: query did NOT embed (no vector) — 0 hits. query=\"\(query, privacy: .public)\"")
+                    return []
+                }
+                // Score the WHOLE snapshot (no threshold/topK) once for diagnostics, so we can see how
+                // close the best candidates came to the cutoff even when nothing passes.
+                let scored = MemoryStore.search(snapshot, queryVector: qv, topK: snapshot.count,
+                                                threshold: -1, excludingMessageIDs: excluded)
+                let topPreview = scored.prefix(3)
+                    .map { String(format: "%.3f:%@", $0.score, String($0.record.text.prefix(40))) }
+                    .joined(separator: " | ")
+                let hits = MemoryStore.search(snapshot, queryVector: qv, topK: topK,
+                                              threshold: threshold, excludingMessageIDs: excluded)
+                EmberLog.retrieval.info("retrieve: query=\"\(query, privacy: .public)\" → \(hits.count, privacy: .public)/\(topK, privacy: .public) hit(s) ≥ \(threshold, privacy: .public). best3=[\(topPreview, privacy: .public)]")
+                return hits
             }
         }
         return ConversationEngine(
