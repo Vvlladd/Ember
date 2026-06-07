@@ -253,7 +253,7 @@ public final class ConversationEngine {
         }
         let tokens = calculator.estimate(pendingMemoryBlock)
         var lines = snapshot.lines
-        lines.append(BudgetLine(id: lines.count, label: "Retrieved memory", tokens: tokens))
+        lines.append(BudgetLine(id: lines.count, label: TokenBudgetCalculator.retrievedMemoryInFlightLabel, tokens: tokens))
         return TokenBudgetSnapshot(maxTokens: snapshot.maxTokens,
                                    usedTokens: snapshot.usedTokens + tokens,
                                    isExact: snapshot.isExact, lines: lines)

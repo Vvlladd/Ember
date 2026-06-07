@@ -54,7 +54,7 @@ public struct TokenBudgetCalculator: Sendable {
                 instructions += line.tokens
             } else if line.label.hasPrefix("Tool: ") {
                 tools += line.tokens
-            } else if line.label == "Memory" || line.label == "Retrieved memory" {
+            } else if line.label == Self.label(for: .retrievedMemory) || line.label == Self.retrievedMemoryInFlightLabel {
                 retrievedMemory += line.tokens
             } else {
                 // You / Assistant / Assistant (typing…) / Tool call / Tool output → history.
@@ -64,6 +64,10 @@ public struct TokenBudgetCalculator: Sendable {
         return TokenBreakdown(instructions: instructions, tools: tools, history: history,
                               retrievedMemory: retrievedMemory, replyReserve: replyReserve)
     }
+
+    /// Budget-line label for the in-flight injected memory block (Plan 10 WS2's synthetic line),
+    /// shared so the engine emitter and `breakdown`'s bucketer can't drift apart.
+    public static let retrievedMemoryInFlightLabel = "Retrieved memory"
 
     static func label(for kind: ContextEntryKind) -> String {
         switch kind {
