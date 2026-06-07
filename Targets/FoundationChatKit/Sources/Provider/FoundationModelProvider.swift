@@ -104,6 +104,21 @@ public final class FoundationModelProvider: ChatModelProvider {
         }
     }
 
+    public func summarizeStructured(_ text: String) async -> ConversationSummary? {
+        guard case .available = availability else { return nil }
+        let session = LanguageModelSession(
+            instructions: "You compress chat history into a structured recap: a brief summary, key topics, and durable user preferences (third person).")
+        do {
+            let response = try await session.respond(
+                to: "Summarize the following conversation. Preserve names, facts, and decisions.\n\(text)",
+                generating: ConversationSummary.self,
+                options: UtilityGenerationOptions.summary)
+            return response.content.isEmpty ? nil : response.content
+        } catch {
+            return nil
+        }
+    }
+
     public func extractMemories(userText: String, assistantText: String) async -> [String]? {
         guard case .available = availability else {
             EmberLog.extraction.notice("extractMemories: model unavailable — returning nil")

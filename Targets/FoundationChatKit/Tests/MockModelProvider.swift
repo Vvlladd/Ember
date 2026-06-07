@@ -114,6 +114,10 @@ final class MockModelProvider: ChatModelProvider {
     /// Captures the most recent text passed to `summarize(_:)` so tests can assert what the
     /// compactor fed into the summary (e.g. that recalled memory was excluded).
     private(set) var capturedSummarizeInput: String?
+    /// Plan 10 WS4 — structured summary scripting. Separate captured field from the string
+    /// `summarize` path's `capturedSummarizeInput` to avoid cross-method pollution.
+    var scriptedStructuredSummary: ConversationSummary?
+    private(set) var capturedStructuredSummarizeInput: String?
     /// Scripted result returned by `extractMemories(...)` (nil scripts the failure path).
     var extractedMemories: [String]? = []
     /// Captures the most recent (userText, assistantText) passed to `extractMemories(...)`.
@@ -136,6 +140,10 @@ final class MockModelProvider: ChatModelProvider {
     }
     func generateTitle(forFirstExchange exchange: TitleSeed) async -> String? { titleResult }
     func summarize(_ text: String) async -> String? { capturedSummarizeInput = text; return summarizeResult }
+    func summarizeStructured(_ text: String) async -> ConversationSummary? {
+        capturedStructuredSummarizeInput = text
+        return scriptedStructuredSummary
+    }
     func extractMemories(userText: String, assistantText: String) async -> [String]? {
         capturedExtractInput = (userText, assistantText)
         return extractedMemories
