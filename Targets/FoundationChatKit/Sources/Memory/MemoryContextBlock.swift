@@ -34,18 +34,35 @@ public enum MemoryContextBlock {
         }
     }
 
+    /// Default injection budget knobs (mirrored by GenerationSettings). Retrieve-more /
+    /// inject-fewer: cap the number of injected hits and clamp each hit's length so a fat
+    /// memory block can't crowd out the user's actual question on the 4K window.
+    public static let defaultMaxHits = 3
+    public static let defaultMaxCharsPerHit = 240
+
     /// The full marker-delimited block: open marker, header, one `- ` bullet per hit, close marker —
-    /// each marker on its own line. Returns an empty string for no hits (`augment` guards first).
-    public static func wrap(_ hits: [MemoryHit]) -> String {
-        guard !hits.isEmpty else { return "" }
-        let bullets = hits.map { "- \(formatHit($0))" }.joined(separator: "\n")
+    /// each marker on its own line. Caps to the first `maxHits` hits and clamps each formatted bullet
+    /// to `maxCharsPerHit`. Returns an empty string for no hits (`augment` guards first).
+    public static func wrap(_ hits: [MemoryHit],
+                            maxHits: Int = defaultMaxHits,
+                            maxCharsPerHit: Int = defaultMaxCharsPerHit) -> String {
+        let limited = Array(hits.prefix(max(0, maxHits)))
+        guard !limited.isEmpty else { return "" }
+        let bullets = limited.map { hit -> String in
+            let formatted = formatHit(hit)
+            return "- \(truncate(formatted, maxChars: maxCharsPerHit))"
+        }.joined(separator: "\n")
         return "\(openMarker)\n\(header)\n\(bullets)\n\(closeMarker)"
     }
 
-    /// Prepends the wrapped block to `prompt` when there are hits; otherwise returns `prompt` as-is.
-    public static func augment(prompt: String, with hits: [MemoryHit]) -> String {
-        guard !hits.isEmpty else { return prompt }
-        return "\(wrap(hits))\n\(prompt)"
+    /// Prepends the wrapped (capped + truncated) block to `prompt` when there are hits; otherwise
+    /// returns `prompt` as-is.
+    public static func augment(prompt: String, with hits: [MemoryHit],
+                               maxHits: Int = defaultMaxHits,
+                               maxCharsPerHit: Int = defaultMaxCharsPerHit) -> String {
+        let limited = Array(hits.prefix(max(0, maxHits)))
+        guard !limited.isEmpty else { return prompt }
+        return "\(wrap(limited, maxHits: maxHits, maxCharsPerHit: maxCharsPerHit))\n\(prompt)"
     }
 
     /// Inverse of `augment`. If `text` starts with the open marker, returns the inner block content
