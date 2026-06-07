@@ -28,7 +28,14 @@ public struct MemorySearchTool: Tool {
         guard let queryVector = embedder.embed(arguments.query) else {
             return "No relevant earlier context found."
         }
-        let hits = MemoryStore.search(snapshot, queryVector: queryVector, excludingMessageIDs: excludedIDs)
+        let hits = MemoryStore.search(
+            snapshot,
+            query: arguments.query,
+            queryVector: queryVector,
+            topK: 3,                  // preserve the tool's existing default topK
+            threshold: 0.2,           // preserve the tool's existing default threshold
+            lexicalWeight: 0.5,
+            excludingMessageIDs: excludedIDs)
         guard !hits.isEmpty else { return "No relevant earlier context found." }
         return hits.map { MemoryContextBlock.formatHit($0) }.joined(separator: "\n")
     }
