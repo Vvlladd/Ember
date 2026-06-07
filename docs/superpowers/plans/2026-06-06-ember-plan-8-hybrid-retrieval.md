@@ -1,5 +1,7 @@
 # Ember — Plan 8 (proposal): Hybrid lexical + semantic memory retrieval
 
+> **⚠️ SUPERSEDED (2026-06-07):** This proposal is absorbed by **Workstream 3** of `docs/superpowers/plans/2026-06-07-ember-plan-10-rag-and-token-efficiency.md`, which carries a fully task-by-task TDD build of the `LexicalScorer` + hybrid blend. Implement WS3 there, not this file. This doc is retained for its problem framing and design rationale; WS3 documents its divergences (weighted-blend `search(query:lexicalWeight:)` instead of a separate `hybridSearch`; LLM query-expansion out of scope).
+>
 > **Status:** PROPOSAL / not yet implemented. Implement via superpowers subagent-driven TDD (fresh implementer per task, red→green→commit, reviewer gate). One branch (`plan-8-hybrid-retrieval`) + merge to `main`.
 > **Relationship:** Follows Plan 7 (`docs/superpowers/plans/2026-06-06-ember-plan-7-auto-rag.md`). Independent of Plan 9 (auto-fact-extraction); **combining 8 + 9 is the strongest outcome**. Either order works; if you only do one, Plan 9 is higher-leverage for cross-conversation recall.
 
