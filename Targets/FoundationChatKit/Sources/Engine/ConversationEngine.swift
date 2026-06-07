@@ -118,23 +118,52 @@ public final class ConversationEngine {
         messages.append(assistant)
         let assistantIndex = messages.count - 1
 
-        do {
-            for try await snapshot in session.stream(prompt: augmented) {
-                if Task.isCancelled { break }
-                messages[assistantIndex].text = snapshot
-                recomputeBudget(inFlight: snapshot)
+        // Retry a transient on-device generation failure ONCE before surfacing it: these are
+        // intermittent runtime hiccups (not overflow), and a clean re-stream usually succeeds.
+        var attempt = 0
+        while true {
+            do {
+                try await streamTurn(augmented, into: assistantIndex)
+                if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
+                recomputeBudget(inFlight: nil)
+                finalizeAssistant(at: assistantIndex)
+                await refreshExactBudget()
+                return
+            } catch is CancellationError {
+                if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
+                finalizeAssistant(at: assistantIndex)
+                await refreshExactBudget()
+                return
+            } catch {
+                let chatError = (error as? ChatError) ?? .unknown(String(describing: error))
+                if attempt == 0, Self.isRetryable(chatError) {
+                    attempt += 1
+                    EmberLog.turn.notice("performTurn: transient error \(String(describing: chatError), privacy: .public) — retrying once")
+                    if assistantIndex < messages.count { messages[assistantIndex].text = "" }
+                    continue
+                }
+                EmberLog.turn.error("performTurn: stream threw — \(String(describing: error), privacy: .public)")
+                await handle(error, assistantIndex: assistantIndex)
+                return
             }
-            if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
-            recomputeBudget(inFlight: nil)
-            finalizeAssistant(at: assistantIndex)
-            await refreshExactBudget()
-        } catch is CancellationError {
-            if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
-            finalizeAssistant(at: assistantIndex)
-            await refreshExactBudget()
-        } catch {
-            EmberLog.turn.error("performTurn: stream threw — \(String(describing: error), privacy: .public)")
-            await handle(error, assistantIndex: assistantIndex)
+        }
+    }
+
+    /// One streaming attempt: drives the assistant bubble from the session's cumulative snapshots.
+    /// Throws the (already-mapped) stream error so `performTurn` can decide whether to retry.
+    private func streamTurn(_ prompt: String, into assistantIndex: Int) async throws {
+        for try await snapshot in session.stream(prompt: prompt) {
+            if Task.isCancelled { break }
+            if assistantIndex < messages.count { messages[assistantIndex].text = snapshot }
+            recomputeBudget(inFlight: snapshot)
+        }
+    }
+
+    /// Errors worth one automatic retry: transient generation hiccups and momentary busy/rate limits.
+    private static func isRetryable(_ error: ChatError) -> Bool {
+        switch error {
+        case .generationInterrupted, .rateLimited: true
+        default: false
         }
     }
 

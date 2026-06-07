@@ -18,6 +18,7 @@ struct ErrorBanner: View {
         switch error {
         case .guardrailViolation: "That request can't be handled. Try rephrasing."
         case .rateLimited: "The model is busy. Try again in a moment."
+        case .generationInterrupted: "The on-device model hit a temporary error. Please try again."
         case .refusal(let r): r ?? "The model declined to answer that."
         case .modelUnavailable: "The on-device model is unavailable."
         case .decodingFailure: "The response couldn't be read. Try again."

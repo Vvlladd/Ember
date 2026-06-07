@@ -166,14 +166,33 @@ final class FoundationModelSession: ChatSessionHandle {
             return ChatError.toolFailed(tool: toolError.tool.name,
                                         message: String(describing: toolError.underlyingError))
         }
-        guard let genError = error as? LanguageModelSession.GenerationError else { return error }
-        switch genError {
-        case .exceededContextWindowSize: return ChatError.contextOverflow
-        case .guardrailViolation: return ChatError.guardrailViolation
-        case .rateLimited: return ChatError.rateLimited
-        case .refusal: return ChatError.refusal(nil)
-        case .decodingFailure: return ChatError.decodingFailure
-        default: return ChatError.unknown(String(describing: genError))
+        if let genError = error as? LanguageModelSession.GenerationError {
+            switch genError {
+            case .exceededContextWindowSize: return ChatError.contextOverflow
+            case .guardrailViolation: return ChatError.guardrailViolation
+            case .rateLimited: return ChatError.rateLimited
+            case .refusal: return ChatError.refusal(nil)
+            case .decodingFailure: return ChatError.decodingFailure
+            default:
+                // A generic GenerationError (Code=-1) wrapping an internal token-generation failure
+                // is transient and retryable — map it instead of dumping the raw NSError.
+                if isTransientGenerationFailure(error) { return ChatError.generationInterrupted }
+                return ChatError.unknown(String(describing: genError))
+            }
         }
+        if isTransientGenerationFailure(error) { return ChatError.generationInterrupted }
+        return error
+    }
+
+    /// True if `error` (or anything in its underlying-error chain) is an Apple on-device
+    /// token-generation failure — domain `com.apple.tokengeneration`. These are intermittent
+    /// runtime failures (resource pressure / internal model state), distinct from context overflow.
+    static func isTransientGenerationFailure(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == "com.apple.tokengeneration" { return true }
+        var chain: [Error] = []
+        if let single = ns.userInfo[NSUnderlyingErrorKey] as? Error { chain.append(single) }
+        if let many = ns.userInfo[NSMultipleUnderlyingErrorsKey] as? [Error] { chain.append(contentsOf: many) }
+        return chain.contains { isTransientGenerationFailure($0) }
     }
 }
