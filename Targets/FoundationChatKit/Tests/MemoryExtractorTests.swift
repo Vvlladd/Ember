@@ -27,4 +27,26 @@ struct MemoryExtractorTests {
                    "I can help you plan your trip"]
         #expect(MemoryExtractor.durableFacts(from: raw).isEmpty)
     }
+
+    @Test func durableFactsCapsToFive() {
+        let raw = [
+            "User likes the color red",
+            "User is planning a trip to Lisbon in December",
+            "User has a dog named Pixel",
+            "User works as an iOS engineer",
+            "User prefers tea over coffee",
+            "User wants to learn Portuguese",   // 6th — must be dropped
+            "User is vegetarian"                // 7th — must be dropped
+        ]
+        let kept = MemoryExtractor.durableFacts(from: raw)
+        #expect(kept.count == 5)
+        #expect(kept.first == "User likes the color red")
+        #expect(!kept.contains("User wants to learn Portuguese"))
+    }
+
+    @Test func durableFactsStillFiltersAndStaysUnderCap() {
+        let raw = ["hello", "User likes hiking", "I can help you with that"]
+        let kept = MemoryExtractor.durableFacts(from: raw)
+        #expect(kept == ["User likes hiking"])
+    }
 }
