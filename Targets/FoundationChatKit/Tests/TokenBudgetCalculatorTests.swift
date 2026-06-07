@@ -99,4 +99,47 @@ struct TokenBudgetCalculatorTests {
             inFlight: nil, exactCount: { _ in nil })
         #expect(snap.lines.contains { $0.label == "Instructions" })
     }
+
+    @Test func breakdownBucketsSnapshotLines() {
+        let lines = [
+            BudgetLine(id: 0, label: "Instructions", tokens: 12),
+            BudgetLine(id: 1, label: "Tool: calculator", tokens: 8),
+            BudgetLine(id: 2, label: "Tool: dateTime", tokens: 6),
+            BudgetLine(id: 3, label: "You", tokens: 40),
+            BudgetLine(id: 4, label: "Assistant", tokens: 55),
+            BudgetLine(id: 5, label: "Retrieved memory", tokens: 9)   // WS2 synthetic line
+        ]
+        let snapshot = TokenBudgetSnapshot(maxTokens: 4096, usedTokens: 130, isExact: true, lines: lines)
+        let calc = TokenBudgetCalculator()
+        let b = calc.breakdown(from: snapshot, replyReserve: 512)
+        #expect(b.instructions == 12)
+        #expect(b.tools == 14)               // 8 + 6
+        #expect(b.history == 95)             // 40 + 55
+        #expect(b.retrievedMemory == 9)
+        #expect(b.replyReserve == 512)
+        #expect(b.total == 12 + 14 + 95 + 9 + 512)
+    }
+
+    @Test func breakdownBucketsCommittedMemoryLabel() {
+        // The real committed-transcript memory label also maps to retrievedMemory.
+        let lines = [
+            BudgetLine(id: 0, label: "You", tokens: 20),
+            BudgetLine(id: 1, label: "Memory", tokens: 17)   // real committed-memory label
+        ]
+        let snapshot = TokenBudgetSnapshot(maxTokens: 4096, usedTokens: 37, isExact: true, lines: lines)
+        let b = TokenBudgetCalculator().breakdown(from: snapshot, replyReserve: 0)
+        #expect(b.retrievedMemory == 17)
+        #expect(b.history == 20)
+    }
+
+    @Test func breakdownTreatsTypingLineAsHistory() {
+        let lines = [
+            BudgetLine(id: 0, label: "You", tokens: 10),
+            BudgetLine(id: 1, label: "Assistant (typing\u{2026})", tokens: 3)   // real typing label
+        ]
+        let snapshot = TokenBudgetSnapshot(maxTokens: 4096, usedTokens: 13, isExact: false, lines: lines)
+        let b = TokenBudgetCalculator().breakdown(from: snapshot, replyReserve: 0)
+        #expect(b.history == 13)
+        #expect(b.replyReserve == 0)
+    }
 }
