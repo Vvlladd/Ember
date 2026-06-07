@@ -25,7 +25,8 @@ struct ChatView: View {
             if let error = engine.lastError {
                 ErrorBanner(error: error)
             }
-            Divider()
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             ComposerView(engine: engine, coordinator: coordinator)
         }
     }

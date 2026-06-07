@@ -5,6 +5,11 @@ struct ConversationListView: View {
     let coordinator: ChatCoordinator
     @State private var renamingID: UUID?
     @State private var renameDraft = ""
+    private static let startTimestampFormat = Date.FormatStyle.dateTime
+        .month(.abbreviated)
+        .day()
+        .hour()
+        .minute()
 
     var body: some View {
         List(selection: Binding(get: { coordinator.selectedID },
@@ -12,8 +17,10 @@ struct ConversationListView: View {
             ForEach(coordinator.visibleConversations, id: \.id) { convo in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(convo.title).lineLimit(1)
-                    Text(convo.updatedAt, style: .relative)
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(convo.createdAt, format: Self.startTimestampFormat)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 .tag(convo.id)
                 .contextMenu {
