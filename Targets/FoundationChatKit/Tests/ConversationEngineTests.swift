@@ -256,4 +256,28 @@ struct ConversationEngineTests {
         await engine.send("second")
         #expect(engine.budget.lines.first { $0.label == "Retrieved memory" } == nil)
     }
+
+    @Test func compactionRoutesPreferencesToCallback() async {
+        let provider = MockModelProvider()
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "Chat.", keyTopics: [], userPreferences: ["User prefers tea"])
+        // Force compaction: tiny window so the projected turn overflows, with > keepingRecent(4)
+        // seeded entries so the compactor actually summarizes (and harvests) the older ones.
+        provider.maxContextTokens = 40
+        let seeded = (0..<6).map { ContextEntry(kind: .userPrompt, text: "earlier message number \($0)") }
+        provider.session.contextEntries = seeded
+        provider.session.scriptedSnapshots = ["ok"]
+
+        var savedPrefs: [String] = []
+        let engine = ConversationEngine(
+            provider: provider,
+            settings: GenerationSettings(reservedReplyTokens: 8),
+            restoringEntries: seeded,
+            onCompactionPreference: { savedPrefs.append($0) })
+
+        await engine.send("first message that is long enough to matter for budgeting here")
+        await engine.send("second message that should push us over the tiny window now")
+
+        #expect(savedPrefs.contains("User prefers tea"))
+    }
 }

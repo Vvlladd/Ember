@@ -50,6 +50,10 @@ public final class ConversationEngine {
     private let calculator: TokenBudgetCalculator
     private let persistence: ConversationPersistence?
     private let memoryRetrieval: MemoryRetrieval?
+    /// Injected by the app to durably persist user preferences harvested during compaction (the
+    /// structured summary's `userPreferences`). Routed into `ContextCompactor.compact(onPreference:)`
+    /// at both compaction sites; `nil` (default) keeps harvesting off, so existing call sites compile.
+    private let onCompactionPreference: (@MainActor (String) -> Void)?
     private let now: () -> Date
     private var turnTask: Task<Void, Never>?
 
@@ -67,6 +71,7 @@ public final class ConversationEngine {
         tools: [any Tool] = [],
         persistence: ConversationPersistence? = nil,
         memoryRetrieval: MemoryRetrieval? = nil,
+        onCompactionPreference: (@MainActor (String) -> Void)? = nil,
         calculator: TokenBudgetCalculator = TokenBudgetCalculator(),
         now: @escaping () -> Date = Date.init
     ) {
@@ -75,6 +80,7 @@ public final class ConversationEngine {
         self.calculator = calculator
         self.persistence = persistence
         self.memoryRetrieval = memoryRetrieval
+        self.onCompactionPreference = onCompactionPreference
         self.now = now
         self.tools = tools
         self.toolAccounting = Toolbox.accountingMetadata(for: tools)
@@ -211,7 +217,8 @@ public final class ConversationEngine {
     private func compactIfNeeded(for prompt: String) async {
         let projected = budget.usedTokens + calculator.estimate(prompt) + settings.reservedReplyTokens
         guard projected > provider.maxContextTokens, session.contextEntries.count > 1 else { return }
-        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider)
+        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider,
+                                                       onPreference: onCompactionPreference)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Older turns were summarized to make room.",
@@ -223,7 +230,8 @@ public final class ConversationEngine {
     }
 
     private func recoverFromOverflow() async {
-        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider)
+        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider,
+                                                       onPreference: onCompactionPreference)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Context window was full — older turns were compacted to keep the chat going.",

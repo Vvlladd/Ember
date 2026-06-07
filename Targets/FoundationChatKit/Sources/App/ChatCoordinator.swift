@@ -237,6 +237,10 @@ public final class ChatCoordinator {
             tools: tools,
             persistence: persistence,
             memoryRetrieval: retrieval,
+            // Harvest compaction-discovered user preferences into deduped durable notes, so they
+            // survive older turns being dropped (retrievable from the next engine build). Nil when
+            // memory is off → no harvest. saveNoteIfNovel returns Bool → discard it.
+            onCompactionPreference: memory.map { mem in { @MainActor pref in _ = mem.saveNoteIfNovel(pref) } },
             now: now
         )
     }
