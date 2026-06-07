@@ -30,8 +30,9 @@ Ember runs entirely on-device (no servers, no network, no API keys). It feels li
 **On-device intelligence**
 - **Tool calling** — three pure, on-device tools (`currentDateTime`, `calculator`, `unitConverter`) built on the FoundationModels `Tool` protocol with `@Generable`/`@Guide` arguments. No network, no permissions.
 - **Guided generation** — model-generated conversation titles (`respond(to:generating:)`), with a deterministic fallback.
-- **Conversation memory (RAG)** — **automatic** retrieve-before-generate: every turn embeds the prompt and injects the top-k relevant snippets from *past conversations* (on-device `NLEmbedding` cosine) into what the model sees, so recall no longer depends on the model choosing a tool. The `searchMemory` tool is retained as a fallback, and a `saveMemory` write tool lets the model deliberately persist curated facts. The app also **automatically extracts durable user facts after each turn** (guided generation) and stores them as deduped curated notes, so recall rides the reliable curated-note path rather than weak message embeddings (gated by `autoExtractMemories`). Every retrieved memory is visible in the inspector (teal **MEMORY**) and counted in the budget.
+- **Conversation memory (RAG)** — **automatic** retrieve-before-generate: every turn embeds the prompt and injects the top-k relevant snippets from *past conversations* (on-device `NLEmbedding` cosine) into what the model sees, so recall no longer depends on the model choosing a tool. **Curated fact-notes are ranked above raw conversation snippets** (`search(preferNotes:)`), so durable facts aren't buried by near-identical past *questions* — which embed almost identically to each other. The `searchMemory` tool is retained as a fallback, and a `saveMemory` write tool lets the model deliberately persist curated facts. The app also **automatically extracts durable user facts after each turn** (guided generation, third-person, with greeting/assistant-chatter filtering) and stores them as deduped curated notes (`saveNoteIfNovel`: normalized-text, substring-containment, and cosine near-duplicate checks), so recall rides the reliable curated-note path rather than weak message embeddings (gated by `autoExtractMemories`). Every retrieved memory is visible in the inspector (teal **MEMORY**) and counted in the budget.
 - **Advanced budgeting** — model-summarized context compaction (with a deterministic keep-first-last fallback) and reserve-for-reply: Ember compacts *proactively* before a turn would overflow, so replies always have headroom.
+- **Resilient generation** — transient on-device runtime failures (e.g. an internal `com.apple.tokengeneration` error, distinct from context overflow) are detected and **retried once** before surfacing a friendly, recoverable banner instead of a raw `NSError`. An opt-in `os.Logger` diagnostic layer (`EmberLog`) traces every memory/RAG boundary for on-device debugging.
 
 ---
 
@@ -76,6 +77,8 @@ AppleFoundationModels/
 ├── Project.swift            # Tuist project (targets, destinations, bundle ids)
 ├── Tuist.swift
 ├── CLAUDE.md                # Claude Code project guide (build/conventions/skills index)
+├── CONTRIBUTING.md          # how to build, test, and submit changes
+├── LICENSE                  # MIT
 ├── README.md
 ├── Targets/
 │   ├── FoundationChatKit/   # framework: all logic + tests (Sources/, Tests/)
@@ -115,7 +118,7 @@ xcodebuild -workspace Ember.xcworkspace -scheme Ember \
 
 ## ✅ Testing
 
-All logic is TDD-covered in the framework (142 tests across 33 suites):
+All logic is TDD-covered in the framework (165 tests across 35 suites):
 
 ```bash
 xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
@@ -126,7 +129,7 @@ The `MockModelProvider`/`MockEmbedder` doubles mean the entire engine, tools, me
 
 ---
 
-## 🗺 Roadmap status — **Phases 1–5 complete**
+## 🗺 Roadmap status — **Phases 1–6 complete**
 
 | Phase | Theme | Status |
 |------|-------|--------|
@@ -135,8 +138,9 @@ The `MockModelProvider`/`MockEmbedder` doubles mean the entire engine, tools, me
 | **3** | RAG (on-device conversation memory) · advanced budgeting (model-summarized compaction, reserve-for-reply) | ✅ Built |
 | **4** | Memory upgrades — **automatic** retrieve-before-generate · embedder/snapshot caching · model-decided saves (`saveMemory`) | ✅ Built |
 | **5** | Proactive memory — **automatic** post-turn extraction of durable user facts → deduped curated `MemoryNote`s (guided generation; `saveNoteIfNovel`; gated by `autoExtractMemories`) | ✅ Built |
+| **6** | Recall & reliability hardening — notes-ranked-above-snippets retrieval (facts no longer buried by past questions), tighter extraction + de-dup, transient generation-error retry, `os.Logger` diagnostics | ✅ Built |
 
-Each phase was developed spec-first (see `docs/superpowers/`) and verified end-to-end on the iOS 26 simulator — including a real on-device tool call (`calculator` → 8,673,516) and cross-conversation memory recall (`searchMemory` → "Lisbon").
+Each phase was developed spec-first (see `docs/superpowers/`) and verified end-to-end on the iOS 26 simulator — including a real on-device tool call (`calculator` → 8,673,516), cross-conversation memory recall (`searchMemory` → "Lisbon"), and a full retrieve → generate → save → de-dup turn traced live through the `EmberLog` diagnostics.
 
 Possible future work (beyond the current roadmap): **hybrid lexical + semantic retrieval** (Plan 8, documented), attachments/images, iCloud/CloudKit sync, multilingual embeddings, and richer compaction strategies.
 
@@ -147,6 +151,16 @@ Possible future work (beyond the current roadmap): **hybrid lexical + semantic r
 - **`CLAUDE.md`** documents build/test commands, architecture, and conventions.
 - **`.claude/skills/`** holds reusable skills (Foundation Models, SwiftUI, Swift Concurrency, Liquid Glass, performance audit, simulator debugging, GitHub issue flow, App Store changelog). Claude Code auto-discovers them; `CLAUDE.md` indexes when each applies.
 - Specs and task-by-task plans for every phase live in `docs/superpowers/`.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read **[CONTRIBUTING.md](CONTRIBUTING.md)** for the build/test workflow, the TDD + granular-commit conventions, and the on-device/privacy constraints (no network, keep all logic behind the framework's protocol seam). In short: `tuist generate` after adding/removing files, and `xcodebuild … -scheme FoundationChatKit … test` must show **TEST SUCCEEDED** before you open a PR.
+
+## 📄 License
+
+Released under the **[MIT License](LICENSE)**. © 2026 Vlad Toma.
 
 ---
 
