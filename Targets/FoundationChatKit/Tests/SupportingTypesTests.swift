@@ -33,6 +33,13 @@ struct SupportingTypesTests {
         #expect(s.memoryInjectionMaxCharsPerHit == 120)
         #expect(s.memoryRetrievalThreshold == 0.5)
     }
+    @Test func generationSettingsHybridLexicalWeightDefault() {
+        #expect(GenerationSettings().hybridLexicalWeight == 0.5)
+    }
+
+    @Test func generationSettingsHybridLexicalWeightCustom() {
+        #expect(GenerationSettings(hybridLexicalWeight: 0.3).hybridLexicalWeight == 0.3)
+    }
     @Test func chatErrorEquatable() {
         #expect(ChatError.contextOverflow == ChatError.contextOverflow)
         #expect(ChatError.refusal("no") == ChatError.refusal("no"))

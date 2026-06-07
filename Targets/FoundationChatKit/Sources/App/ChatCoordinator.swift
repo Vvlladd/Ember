@@ -207,21 +207,24 @@ public final class ChatCoordinator {
             memoryWriteBuffer = buffer
             tools.append(SaveMemoryTool(buffer: buffer))
             // Automatic retrieve-before-generate: a Sendable closure over only Sendable values.
+            let lexicalWeight = settings.hybridLexicalWeight
             retrieval = ConversationEngine.MemoryRetrieval { query in
-                guard let qv = embedder.embed(query) else {
-                    EmberLog.retrieval.error("retrieve: query did NOT embed (no vector) — 0 hits. query=\"\(query, privacy: .public)\"")
-                    return []
-                }
-                // Score the WHOLE snapshot (no threshold/topK) once for diagnostics, so we can see how
+                // Hybrid path: an unembeddable query must still match lexically, so default the
+                // vector to [] (cosine 0) rather than early-returning. Plan 10 WS3.
+                let qv = embedder.embed(query) ?? []
+                // Diagnostics: score the WHOLE snapshot once (no threshold/topK) so we can see how
                 // close the best candidates came to the cutoff even when nothing passes.
-                let scored = MemoryStore.search(snapshot, queryVector: qv, topK: snapshot.count,
-                                                threshold: -1, excludingMessageIDs: excluded)
+                let scored = MemoryStore.search(snapshot, query: query, queryVector: qv,
+                                                topK: snapshot.count, threshold: -1,
+                                                lexicalWeight: lexicalWeight,
+                                                excludingMessageIDs: excluded)
                 let topPreview = scored.prefix(3)
                     .map { String(format: "%.3f:%@", $0.score, String($0.record.text.prefix(40))) }
                     .joined(separator: " | ")
-                let hits = MemoryStore.search(snapshot, queryVector: qv, topK: topK,
-                                              threshold: threshold, excludingMessageIDs: excluded,
-                                              preferNotes: true)
+                let hits = MemoryStore.search(snapshot, query: query, queryVector: qv,
+                                              topK: topK, threshold: threshold,
+                                              lexicalWeight: lexicalWeight,
+                                              excludingMessageIDs: excluded, preferNotes: true)
                 EmberLog.retrieval.info("retrieve: query=\"\(query, privacy: .public)\" → \(hits.count, privacy: .public)/\(topK, privacy: .public) hit(s) ≥ \(threshold, privacy: .public). best3=[\(topPreview, privacy: .public)]")
                 return hits
             }

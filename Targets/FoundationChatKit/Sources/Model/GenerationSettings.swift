@@ -13,6 +13,9 @@ public struct GenerationSettings: Sendable, Equatable {
     public var memoryInjectionMaxHits: Int = 3
     /// Clamp each injected hit to this many characters. Plan 10 WS2.
     public var memoryInjectionMaxCharsPerHit: Int = 240
+    /// Weight of the lexical signal in hybrid retrieval (Plan 10 WS3). 0 = cosine-only,
+    /// 1 = lexical-only. Default 0.5 blends them evenly.
+    public var hybridLexicalWeight: Float = 0.5
     /// When true, after each completed turn the model is asked to extract salient user facts
     /// which are persisted as de-duplicated `.note` memories (Plan 9). Off the hot path, but
     /// costs one extra model round-trip per turn when on.
@@ -21,6 +24,7 @@ public struct GenerationSettings: Sendable, Equatable {
                 maximumResponseTokens: Int? = nil, reservedReplyTokens: Int = 512,
                 memoryRetrievalTopK: Int = 4, memoryRetrievalThreshold: Float = 0.35,
                 memoryInjectionMaxHits: Int = 3, memoryInjectionMaxCharsPerHit: Int = 240,
+                hybridLexicalWeight: Float = 0.5,
                 autoExtractMemories: Bool = true) {
         self.instructions = instructions
         self.temperature = temperature
@@ -30,6 +34,7 @@ public struct GenerationSettings: Sendable, Equatable {
         self.memoryRetrievalThreshold = memoryRetrievalThreshold
         self.memoryInjectionMaxHits = memoryInjectionMaxHits
         self.memoryInjectionMaxCharsPerHit = memoryInjectionMaxCharsPerHit
+        self.hybridLexicalWeight = hybridLexicalWeight
         self.autoExtractMemories = autoExtractMemories
     }
 }
