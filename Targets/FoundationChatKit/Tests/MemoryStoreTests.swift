@@ -158,6 +158,39 @@ struct MemoryStoreTests {
         #expect(mem.snapshot().isEmpty)
     }
 
+    /// `preferNotes` ranks any qualifying curated note ABOVE conversation snippets, even when a
+    /// snippet scores higher — so durable facts can't be buried by near-identical past questions
+    /// (the on-device recall bug). Without the flag, pure score ordering is unchanged.
+    @Test func searchPreferNotesRanksNotesFirst() throws {
+        let (mem, store) = try makeStore()
+        let c = store.createConversation(now: Date(timeIntervalSince1970: 0))
+        // Conversation snippet shares MORE query words → higher cosine than the note.
+        store.appendMessage(role: .user, text: "trip to paris budget", to: c, now: Date(timeIntervalSince1970: 0))
+        mem.backfill()
+        mem.saveNote("paris")                       // note shares only "paris"
+        let snap = mem.snapshot()
+        let q = MockEmbedder().embed("paris trip")!
+
+        // Pure score: the snippet (shares paris+trip) outranks the note (shares paris).
+        let byScore = MemoryStore.search(snap, queryVector: q, topK: 3, threshold: 0.01)
+        #expect(byScore.first?.record.source == .conversation)
+
+        // preferNotes: the note is surfaced first despite its lower score.
+        let preferred = MemoryStore.search(snap, queryVector: q, topK: 3, threshold: 0.01, preferNotes: true)
+        #expect(preferred.first?.record.source == .note)
+        #expect(preferred.first?.record.text == "paris")
+    }
+
+    /// De-dupe path (c): a candidate that is a normalized substring of an existing note (or vice
+    /// versa) is skipped — stops fragment notes like "trip to paris" piling up next to
+    /// "trip to paris in september".
+    @Test func saveNoteIfNovelSkipsContainedFragment() throws {
+        let (mem, _) = try makeStore()
+        #expect(mem.saveNoteIfNovel("trip to paris in september") == true)
+        #expect(mem.saveNoteIfNovel("trip to paris") == false)              // contained → dup
+        #expect(mem.snapshot().filter { $0.source == .note }.count == 1)
+    }
+
     @Test func indexEarlyReturnDoesNotInvalidateCache() throws {
         let (mem, store) = try makeStore()
         let c = store.createConversation(now: Date(timeIntervalSince1970: 0))

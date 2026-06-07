@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import os
 
 /// Embeds messages on save (and via one-time backfill) and serves brute-force cosine retrieval.
 @MainActor
@@ -43,11 +44,12 @@ public final class MemoryStore {
         context.insert(note)
         try? context.save()
         cachedSnapshot = nil  // a note was written — invalidate the cache
+        EmberLog.memory.info("saveNote: persisted (embedded=\(vector != nil ? "yes" : "NO", privacy: .public)) \"\(trimmed, privacy: .public)\"")
     }
 
     /// Cosine similarity at or above which a candidate note is treated as a near-duplicate of an
     /// existing note (so auto-extraction skips it). Tuned for reorderings/paraphrases, not exact text.
-    private static let noteDuplicateCosineThreshold: Float = 0.9
+    private static let noteDuplicateCosineThreshold: Float = 0.85
 
     /// Novelty-aware variant of `saveNote` for AUTO-extraction: persists `text` ONLY if it is not a
     /// near-duplicate of an EXISTING note (`snapshot()` records with `source == .note`). Returns
@@ -61,16 +63,28 @@ public final class MemoryStore {
 
         let notes = snapshot().filter { $0.source == .note }
 
-        // 1) Normalized-text equality: lowercase + collapse internal whitespace.
+        // 1) Normalized-text equality OR substring containment: lowercase + collapse whitespace,
+        // then reject if either string contains the other. Containment only counts when the SHORTER
+        // (contained) side is ≥3 words, so a one-word note ("paris") can't swallow every richer fact
+        // mentioning it — only genuine fragments ("trip to paris" ⊂ "trip to paris in september").
         let normalizedCandidate = Self.normalizedForDedup(trimmed)
-        if notes.contains(where: { Self.normalizedForDedup($0.text) == normalizedCandidate }) {
+        if let dup = notes.first(where: {
+            let n = Self.normalizedForDedup($0.text)
+            if n == normalizedCandidate { return true }
+            let shorter = n.count <= normalizedCandidate.count ? n : normalizedCandidate
+            let longer = n.count <= normalizedCandidate.count ? normalizedCandidate : n
+            return Self.wordCount(shorter) >= 3 && longer.contains(shorter)
+        }) {
+            EmberLog.memory.notice("saveNoteIfNovel: REJECT (text contained/equal vs \"\(dup.text, privacy: .public)\") \"\(trimmed, privacy: .public)\"")
             return false
         }
 
         // 2) Cosine near-duplicate: only meaningful when both sides actually embed.
         if let candidateVector = embedder.embed(trimmed) {
             for note in notes where !note.vector.isEmpty {
-                if Vector.cosineSimilarity(candidateVector, note.vector) >= Self.noteDuplicateCosineThreshold {
+                let sim = Vector.cosineSimilarity(candidateVector, note.vector)
+                if sim >= Self.noteDuplicateCosineThreshold {
+                    EmberLog.memory.notice("saveNoteIfNovel: REJECT (cosine \(sim, privacy: .public) ≥ \(Self.noteDuplicateCosineThreshold, privacy: .public) vs \"\(note.text, privacy: .public)\") new=\"\(trimmed, privacy: .public)\"")
                     return false
                 }
             }
@@ -83,6 +97,10 @@ public final class MemoryStore {
     /// Normalize for de-dup comparison: lowercase, collapse runs of whitespace to single spaces, trim.
     private static func normalizedForDedup(_ s: String) -> String {
         s.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    private static func wordCount(_ s: String) -> Int {
+        s.split(whereSeparator: { $0.isWhitespace }).count
     }
 
     /// One-time embedding of all persisted messages lacking a vector.
@@ -126,16 +144,27 @@ public final class MemoryStore {
 
     /// Pure brute-force cosine top-k over a snapshot; drops excluded ids and scores below `threshold`.
     /// `nonisolated` so off-actor callers (e.g. `MemorySearchTool`) can run it without an actor hop.
+    ///
+    /// `preferNotes`: when true, any qualifying curated `.note` (a durable fact) ranks ABOVE every
+    /// conversation snippet regardless of score, so facts can't be buried under near-identical past
+    /// questions (which embed almost identically to each other). Within each group, score still
+    /// orders. Default false preserves pure-score ordering for the explicit search tool.
     public nonisolated static func search(_ snapshot: [MemoryRecord], queryVector: [Float],
                               topK: Int = 3, threshold: Float = 0.2,
-                              excludingMessageIDs excluded: Set<UUID> = []) -> [MemoryHit] {
-        snapshot
+                              excludingMessageIDs excluded: Set<UUID> = [],
+                              preferNotes: Bool = false) -> [MemoryHit] {
+        let scored = snapshot
             .filter { !excluded.contains($0.messageID) }
             .map { MemoryHit(record: $0, score: Vector.cosineSimilarity(queryVector, $0.vector)) }
             .filter { $0.score >= threshold }
-            .sorted { $0.score > $1.score }
-            .prefix(max(0, topK))
-            .map { $0 }
+        let ordered = scored.sorted { lhs, rhs in
+            if preferNotes {
+                let lNote = lhs.record.source == .note, rNote = rhs.record.source == .note
+                if lNote != rNote { return lNote }   // notes ahead of conversation snippets
+            }
+            return lhs.score > rhs.score
+        }
+        return Array(ordered.prefix(max(0, topK)))
     }
 
     static func archive(_ v: [Float]) -> Data { v.withUnsafeBufferPointer { Data(buffer: $0) } }

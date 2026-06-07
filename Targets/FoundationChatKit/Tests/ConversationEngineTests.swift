@@ -153,4 +153,46 @@ struct ConversationEngineTests {
         #expect(streamedPrompt?.contains("Background from earlier chats (use only if directly relevant to the question; otherwise ignore):") == false)
         #expect(engine.messages.first(where: { $0.role == .user })?.text == "plain prompt")
     }
+
+    /// A transient on-device generation failure is retried ONCE and then succeeds — the user sees
+    /// the reply, not an error.
+    @Test func retriesOnceOnTransientGenerationError() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["Hello, retried"]
+        provider.session.errorAfter = 0
+        provider.session.failuresRemaining = 1
+        provider.session.failureError = ChatError.generationInterrupted
+        let engine = makeEngine(provider)
+        await engine.send("hi")
+        #expect(provider.session.streamCallCount == 2)        // failed once, retried once
+        #expect(engine.lastError == nil)
+        #expect(engine.messages.last?.role == .assistant)
+        #expect(engine.messages.last?.text == "Hello, retried")
+    }
+
+    /// If the transient failure persists past the single retry, it surfaces as the friendly error.
+    @Test func surfacesTransientErrorAfterRetryExhausted() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["partial"]
+        provider.session.errorAfter = 0
+        provider.session.failuresRemaining = 2                // initial + retry both fail
+        provider.session.failureError = ChatError.generationInterrupted
+        let engine = makeEngine(provider)
+        await engine.send("hi")
+        #expect(provider.session.streamCallCount == 2)        // one retry, then give up
+        #expect(engine.lastError == .generationInterrupted)
+    }
+
+    /// A NON-retryable error (e.g. guardrail) is surfaced immediately, with no retry.
+    @Test func doesNotRetryNonRetryableError() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["x"]
+        provider.session.errorAfter = 0
+        provider.session.failuresRemaining = 1
+        provider.session.failureError = ChatError.guardrailViolation
+        let engine = makeEngine(provider)
+        await engine.send("hi")
+        #expect(provider.session.streamCallCount == 1)        // no retry
+        #expect(engine.lastError == .guardrailViolation)
+    }
 }

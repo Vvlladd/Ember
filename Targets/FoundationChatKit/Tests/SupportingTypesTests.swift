@@ -11,8 +11,9 @@ struct SupportingTypesTests {
         #expect(s.instructions == nil)
         #expect(s.temperature == nil)
         #expect(s.maximumResponseTokens == nil)
-        // Auto-RAG precision: a single strong match, filtered at a higher threshold.
-        #expect(s.memoryRetrievalTopK == 1)
+        // Auto-RAG recall: surface several memories (notes prioritized) so a durable fact isn't
+        // buried under near-identical past questions; still filtered at a precision threshold.
+        #expect(s.memoryRetrievalTopK == 4)
         #expect(s.memoryRetrievalThreshold == 0.5)
         // Plan 9: proactive auto-extraction of salient user facts is on by default.
         #expect(s.autoExtractMemories == true)

@@ -14,6 +14,13 @@ final class MockSessionHandle: ChatSessionHandle {
     /// If set, the stream throws this after emitting `errorAfter` snapshots.
     var scriptedError: Error?
     var errorAfter: Int = 0
+    /// Transient-failure simulation for retry tests: while > 0, EACH `stream` call throws
+    /// `failureError` (after `errorAfter` snapshots) and decrements. Subsequent calls stream
+    /// normally. Independent of `scriptedError` (which throws on every call).
+    var failuresRemaining: Int = 0
+    var failureError: Error?
+    /// How many times `stream` has been invoked (so tests can assert a retry actually happened).
+    private(set) var streamCallCount = 0
     var commitsEntriesOnFinish = true
     /// Scripted (toolCallText, toolOutputText) pairs injected into contextEntries on finish.
     var scriptedToolInteractions: [(call: String, output: String)] = []
@@ -27,8 +34,12 @@ final class MockSessionHandle: ChatSessionHandle {
     private(set) var prewarmCount = 0
 
     func stream(prompt: String) -> AsyncThrowingStream<String, Error> {
+        streamCallCount += 1
         let snapshots = scriptedSnapshots
-        let error = scriptedError
+        // This call fails if a transient failure is budgeted, else falls back to the static error.
+        let willFailTransiently = failuresRemaining > 0
+        if willFailTransiently { failuresRemaining -= 1 }
+        let error = willFailTransiently ? (failureError ?? scriptedError) : scriptedError
         let errorAfter = self.errorAfter
         let commits = commitsEntriesOnFinish
         return AsyncThrowingStream { continuation in

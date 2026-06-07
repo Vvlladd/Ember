@@ -67,7 +67,7 @@ Reusable skills live in **`.claude/skills/`** (imported from `unPiRoomPlan`). Tr
 ## Where things live
 
 - **Specs:** `docs/superpowers/specs/` · **Plans:** `docs/superpowers/plans/` (one spec + one task-by-task plan per phase; grounded in Apple docs).
-- **Roadmap status:** Phases 1–5 are **built** (streaming chat + gauge + inspector + history → tool calling + guided generation → conversation-memory RAG + advanced budgeting → **automatic retrieve-before-generate + embedder/snapshot caching + model-decided `saveMemory`** → **Plan 9 automatic post-turn fact extraction → deduped curated `MemoryNote`s (`saveNoteIfNovel`, gated by `autoExtractMemories`)**). Plan 8 (hybrid lexical+semantic retrieval) is documented but not yet built. See `README.md`.
+- **Roadmap status:** Phases 1–6 are **built** (streaming chat + gauge + inspector + history → tool calling + guided generation → conversation-memory RAG + advanced budgeting → **automatic retrieve-before-generate + embedder/snapshot caching + model-decided `saveMemory`** → **Plan 9 automatic post-turn fact extraction → deduped curated `MemoryNote`s (`saveNoteIfNovel`, gated by `autoExtractMemories`)** → **recall & reliability hardening: notes-ranked-above-snippets retrieval (`search(preferNotes:)`, default `topK` 1→4) so durable facts aren't buried by near-identical past questions; tighter extraction (`MemoryExtractor.durableFacts`) + de-dup; transient `com.apple.tokengeneration` errors mapped to retryable `ChatError.generationInterrupted` and retried once; `EmberLog` os.Logger diagnostics**). Plan 8 (hybrid lexical+semantic retrieval) is documented but not yet built. See `README.md`.
 
 ## How this project is built
 
