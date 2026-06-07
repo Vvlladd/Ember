@@ -11,6 +11,16 @@ public enum MemoryContextBlock {
     private static let closeMarker = "\u{27E6}/memory\u{27E7}"   // ⟦/memory⟧
     private static let header = "Background from earlier chats (use only if directly relevant to the question; otherwise ignore):"
 
+    /// Clamp a single injected hit's text to `maxChars`, appending a single ellipsis so the
+    /// model sees the truncation. Trailing whitespace is trimmed before the ellipsis. Returns
+    /// the input unchanged when it already fits.
+    static func truncate(_ text: String, maxChars: Int) -> String {
+        guard maxChars > 0, text.count > maxChars else { return text }
+        let clamped = String(text.prefix(maxChars))
+        let trimmed = String(clamped.reversed().drop(while: { $0.isWhitespace }).reversed())
+        return trimmed + "\u{2026}"
+    }
+
     /// Renders a single hit. Factored out of `MemorySearchTool` so the tool and auto-injection
     /// agree on formatting. Saved notes (model-curated facts) render differently from
     /// conversation snippets.

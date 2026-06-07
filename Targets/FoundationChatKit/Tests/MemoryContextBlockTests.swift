@@ -60,4 +60,27 @@ struct MemoryContextBlockTests {
         let hit = MemoryHit(record: rec, score: 1)
         #expect(MemoryContextBlock.formatHit(hit) == "From 'Code' — Assistant: debugging swift code")
     }
+
+    @Test func truncateLeavesShortTextUntouched() {
+        #expect(MemoryContextBlock.truncate("short fact", maxChars: 240) == "short fact")
+    }
+
+    @Test func truncateClampsLongTextWithEllipsis() {
+        let long = String(repeating: "a", count: 300)
+        let out = MemoryContextBlock.truncate(long, maxChars: 240)
+        #expect(out.count == 241)            // 240 chars + the single ellipsis Character (U+2026)
+        #expect(out.hasSuffix("\u{2026}"))
+    }
+
+    @Test func truncateAtExactBoundaryIsUnchanged() {
+        let exact = String(repeating: "b", count: 240)
+        #expect(MemoryContextBlock.truncate(exact, maxChars: 240) == exact)
+    }
+
+    @Test func truncateTrimsTrailingWhitespaceBeforeEllipsis() {
+        let text = String(repeating: "c", count: 238) + "   xyz"   // 244 chars
+        let out = MemoryContextBlock.truncate(text, maxChars: 240)
+        #expect(out.hasSuffix("\u{2026}"))
+        #expect(!out.contains("  \u{2026}"))   // no double-space before ellipsis
+    }
 }
