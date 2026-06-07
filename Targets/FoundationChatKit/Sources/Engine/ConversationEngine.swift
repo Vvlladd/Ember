@@ -53,6 +53,12 @@ public final class ConversationEngine {
     private let now: () -> Date
     private var turnTask: Task<Void, Never>?
 
+    /// The memory block injected on the current turn (empty between turns). Accounted as a
+    /// "Retrieved memory" budget line so the Tokens tab reflects RAG cost immediately, not
+    /// only after the model commits the augmented prompt into the transcript. Cleared at the
+    /// END of performTurn (after refreshExactBudget), so the post-turn budget keeps the line.
+    private var pendingMemoryBlock: String = ""
+
     public init(
         provider: any ChatModelProvider,
         settings: GenerationSettings = GenerationSettings(),
@@ -109,6 +115,9 @@ public final class ConversationEngine {
             hits,
             maxHits: settings.memoryInjectionMaxHits,
             maxCharsPerHit: settings.memoryInjectionMaxCharsPerHit)
+        pendingMemoryBlock = memoryBlock
+        // Inline `"\(block)\n\(prompt)"` join — canonical equivalent is
+        // `MemoryContextBlock.augment(prompt:with:...)` (same join). Keep the two sites in sync.
         let augmented = memoryBlock.isEmpty ? prompt : "\(memoryBlock)\n\(prompt)"
         if memoryRetrieval != nil {
             EmberLog.turn.info("performTurn: \(hits.count, privacy: .public) memory hit(s) → prompt \(augmented == prompt ? "NOT augmented" : "augmented", privacy: .public)")
@@ -132,11 +141,13 @@ public final class ConversationEngine {
                 recomputeBudget(inFlight: nil)
                 finalizeAssistant(at: assistantIndex)
                 await refreshExactBudget()
+                pendingMemoryBlock = ""      // cleared AFTER the post-turn budget keeps the line
                 return
             } catch is CancellationError {
                 if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
                 finalizeAssistant(at: assistantIndex)
                 await refreshExactBudget()
+                pendingMemoryBlock = ""      // cleared AFTER the post-turn budget keeps the line
                 return
             } catch {
                 let chatError = (error as? ChatError) ?? .unknown(String(describing: error))
@@ -147,6 +158,7 @@ public final class ConversationEngine {
                     continue
                 }
                 EmberLog.turn.error("performTurn: stream threw — \(String(describing: error), privacy: .public)")
+                pendingMemoryBlock = ""      // failed turn must not leave a stale block
                 await handle(error, assistantIndex: assistantIndex)
                 return
             }
@@ -222,9 +234,26 @@ public final class ConversationEngine {
         persistence?.recordResumeState(session.encodedTranscript(), budget.usedTokens)
     }
 
+    /// Append a synthetic "Retrieved memory" budget line for the in-flight injected block, unless
+    /// the session already committed it as a `.retrievedMemory` entry (then the calculator counts
+    /// it and we must not double-count). Shared by recomputeBudget + refreshExactBudget so the
+    /// line survives the post-turn exact rebuild.
+    private func injectingPendingMemory(into snapshot: TokenBudgetSnapshot) -> TokenBudgetSnapshot {
+        guard !pendingMemoryBlock.isEmpty,
+              !session.contextEntries.contains(where: { $0.kind == .retrievedMemory }) else {
+            return snapshot
+        }
+        let tokens = calculator.estimate(pendingMemoryBlock)
+        var lines = snapshot.lines
+        lines.append(BudgetLine(id: lines.count, label: "Retrieved memory", tokens: tokens))
+        return TokenBudgetSnapshot(maxTokens: snapshot.maxTokens,
+                                   usedTokens: snapshot.usedTokens + tokens,
+                                   isExact: snapshot.isExact, lines: lines)
+    }
+
     private func recomputeBudget(inFlight: String?) {
         let providerRef = provider
-        budget = calculator.snapshot(
+        let snapshot = calculator.snapshot(
             maxTokens: providerRef.maxContextTokens,
             instructions: settings.instructions,
             entries: session.contextEntries,
@@ -232,6 +261,7 @@ public final class ConversationEngine {
             tools: toolAccounting,
             exactCount: { text in providerRef.tokenCount(for: text) }
         )
+        budget = injectingPendingMemory(into: snapshot)
     }
 
     /// Recompute the budget using exact async token counts (26.4+). Reuses the synchronous
@@ -248,7 +278,7 @@ public final class ConversationEngine {
         if let instructions = settings.instructions { await fill(instructions) }
         for entry in session.contextEntries { await fill(entry.text) }
         for tool in toolAccounting { await fill(tool.schemaDigest) }
-        budget = calculator.snapshot(
+        let snapshot = calculator.snapshot(
             maxTokens: providerRef.maxContextTokens,
             instructions: settings.instructions,
             entries: session.contextEntries,
@@ -256,5 +286,6 @@ public final class ConversationEngine {
             tools: toolAccounting,
             exactCount: { cache[$0] }
         )
+        budget = injectingPendingMemory(into: snapshot)
     }
 }

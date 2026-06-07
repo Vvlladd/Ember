@@ -225,4 +225,34 @@ struct ConversationEngineTests {
         #expect(!sent.contains("third"))               // 3rd hit dropped (maxHits 2)
         #expect(sent.hasSuffix("recall"))              // raw prompt preserved at end
     }
+
+    // MARK: - Plan 10 WS2 (2.4b): injected memory block accounted as a budget line
+
+    @Test func memoryBlockShowsAsBudgetLineAfterTurn() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["hi", "hello"]
+        let hits = [MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+            conversationTitle: "Past", role: .user, text: "User loves Lisbon", vector: [], source: .note), score: 0.9)]
+        let retrieval = ConversationEngine.MemoryRetrieval { _ in hits }
+        let engine = ConversationEngine(provider: provider, memoryRetrieval: retrieval)
+
+        await engine.send("where to?")
+
+        let memoryLine = engine.budget.lines.first { $0.label == "Retrieved memory" }
+        #expect(memoryLine != nil)
+        #expect((memoryLine?.tokens ?? 0) > 0)
+    }
+
+    @Test func memoryBlockLineClearedOnNextTurnWithNoHits() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["one", "two"]
+        var hitsToReturn = [MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+            conversationTitle: "Past", role: .user, text: "User loves Lisbon", vector: [], source: .note), score: 0.9)]
+        let retrieval = ConversationEngine.MemoryRetrieval { _ in hitsToReturn }
+        let engine = ConversationEngine(provider: provider, memoryRetrieval: retrieval)
+        await engine.send("first")
+        hitsToReturn = []                 // no memory next turn
+        await engine.send("second")
+        #expect(engine.budget.lines.first { $0.label == "Retrieved memory" } == nil)
+    }
 }
