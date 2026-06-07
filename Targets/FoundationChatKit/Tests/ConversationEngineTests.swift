@@ -280,4 +280,16 @@ struct ConversationEngineTests {
 
         #expect(savedPrefs.contains("User prefers tea"))
     }
+
+    @Test func engineExposesTokenBreakdownWithReserve() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["Hello there"]
+        let engine = ConversationEngine(provider: provider,
+                                        settings: GenerationSettings(reservedReplyTokens: 512))
+        await engine.send("hi")
+        let b = engine.tokenBreakdown
+        #expect(b.replyReserve == 512)
+        #expect(b.total >= b.history)             // total includes history + reserve
+        #expect(b.history > 0)                    // a turn happened
+    }
 }

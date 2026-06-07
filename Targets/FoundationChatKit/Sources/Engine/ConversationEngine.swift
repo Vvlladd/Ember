@@ -42,6 +42,12 @@ public final class ConversationEngine {
     /// Tokens kept free for the model's reply (drives proactive compaction + the Tokens tab).
     public var reservedReplyTokens: Int { settings.reservedReplyTokens }
 
+    /// Per-bucket token breakdown for the inspector (Plan 10 WS5), derived from the current
+    /// budget snapshot plus the reserved reply headroom.
+    public var tokenBreakdown: TokenBreakdown {
+        calculator.breakdown(from: budget, replyReserve: settings.reservedReplyTokens)
+    }
+
     private let provider: any ChatModelProvider
     private var session: any ChatSessionHandle
     private let tools: [any Tool]
