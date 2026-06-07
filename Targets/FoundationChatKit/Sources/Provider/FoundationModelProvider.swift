@@ -95,7 +95,8 @@ public final class FoundationModelProvider: ChatModelProvider {
             instructions: "You compress chat history into a brief, factual summary.")
         do {
             let response = try await session.respond(
-                to: "Summarize the following conversation in a few sentences, preserving names, facts, and decisions:\n\(text)")
+                to: "Summarize the following conversation in a few sentences, preserving names, facts, and decisions:\n\(text)",
+                options: UtilityGenerationOptions.summary)
             let summary = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
             return summary.isEmpty ? nil : summary
         } catch {
