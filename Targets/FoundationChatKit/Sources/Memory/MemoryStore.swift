@@ -167,6 +167,41 @@ public final class MemoryStore {
         return Array(ordered.prefix(max(0, topK)))
     }
 
+    /// Hybrid retrieval: blends cosine similarity with a pure lexical-overlap signal so recall
+    /// doesn't hinge on a single weak embedder. `hybrid = (1 - lexicalWeight) * cosine +
+    /// lexicalWeight * lexical`. Records with no vector still match lexically. Plan 10 WS3
+    /// (absorbs Plan 8). When `lexicalWeight == 0` this returns the cosine-only path verbatim.
+    public nonisolated static func search(_ snapshot: [MemoryRecord], query: String,
+                              queryVector: [Float], topK: Int = 3, threshold: Float = 0.2,
+                              lexicalWeight: Float = 0.5,
+                              excludingMessageIDs excluded: Set<UUID> = [],
+                              preferNotes: Bool = false) -> [MemoryHit] {
+        let w = min(max(lexicalWeight, 0), 1)
+        // Construction-level guarantee: with no lexical weight, defer to the cosine-only path so
+        // the score is bit-identical (no multiply), not merely approximately equal.
+        guard w > 0 else {
+            return search(snapshot, queryVector: queryVector, topK: topK, threshold: threshold,
+                          excludingMessageIDs: excluded, preferNotes: preferNotes)
+        }
+        let scored = snapshot
+            .filter { !excluded.contains($0.messageID) }
+            .map { record -> MemoryHit in
+                let cosine = Vector.cosineSimilarity(queryVector, record.vector)
+                let lexical = LexicalScorer.score(query: query, text: record.text)
+                let hybrid = (1 - w) * cosine + w * lexical
+                return MemoryHit(record: record, score: hybrid)
+            }
+            .filter { $0.score >= threshold }
+        let ordered = scored.sorted { lhs, rhs in
+            if preferNotes {
+                let lNote = lhs.record.source == .note, rNote = rhs.record.source == .note
+                if lNote != rNote { return lNote }
+            }
+            return lhs.score > rhs.score
+        }
+        return Array(ordered.prefix(max(0, topK)))
+    }
+
     static func archive(_ v: [Float]) -> Data { v.withUnsafeBufferPointer { Data(buffer: $0) } }
     static func unarchive(_ d: Data) -> [Float] {
         let count = d.count / MemoryLayout<Float>.stride
