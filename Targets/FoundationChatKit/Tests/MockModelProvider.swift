@@ -21,6 +21,9 @@ final class MockSessionHandle: ChatSessionHandle {
     var failureError: Error?
     /// How many times `stream` has been invoked (so tests can assert a retry actually happened).
     private(set) var streamCallCount = 0
+    /// Plan 10 WS2: capture the exact prompt the engine streamed (post-augmentation) so tests
+    /// can assert memory-injection shaping. Set synchronously before the stream closure runs.
+    var lastStreamedPrompt: String?
     var commitsEntriesOnFinish = true
     /// Scripted (toolCallText, toolOutputText) pairs injected into contextEntries on finish.
     var scriptedToolInteractions: [(call: String, output: String)] = []
@@ -35,6 +38,7 @@ final class MockSessionHandle: ChatSessionHandle {
 
     func stream(prompt: String) -> AsyncThrowingStream<String, Error> {
         streamCallCount += 1
+        lastStreamedPrompt = prompt
         let snapshots = scriptedSnapshots
         // This call fails if a transient failure is budgeted, else falls back to the static error.
         let willFailTransiently = failuresRemaining > 0

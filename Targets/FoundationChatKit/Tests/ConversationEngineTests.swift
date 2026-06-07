@@ -195,4 +195,34 @@ struct ConversationEngineTests {
         #expect(provider.session.streamCallCount == 1)        // no retry
         #expect(engine.lastError == .guardrailViolation)
     }
+
+    // MARK: - Plan 10 WS2: injection knobs (inject-fewer / truncate)
+
+    @Test func injectsAtMostMaxHitsAndTruncates() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["ok"]
+        let longFact = String(repeating: "q", count: 400)
+        let hits = [
+            MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                conversationTitle: "Past", role: .user, text: longFact, vector: [], source: .note), score: 0.9),
+            MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                conversationTitle: "Past", role: .user, text: "second", vector: [], source: .note), score: 0.8),
+            MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                conversationTitle: "Past", role: .user, text: "third", vector: [], source: .note), score: 0.7),
+            MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                conversationTitle: "Past", role: .user, text: "fourth", vector: [], source: .note), score: 0.6)
+        ]
+        let settings = GenerationSettings(memoryInjectionMaxHits: 2, memoryInjectionMaxCharsPerHit: 60)
+        let retrieval = ConversationEngine.MemoryRetrieval { _ in hits }
+        let engine = ConversationEngine(provider: provider, settings: settings, memoryRetrieval: retrieval)
+
+        await engine.send("recall")
+
+        let sent = provider.session.lastStreamedPrompt ?? ""
+        #expect(sent.contains("\u{2026}"))             // first hit truncated
+        #expect(!sent.contains(longFact))              // full long fact not present
+        #expect(sent.contains("second"))               // 2nd hit kept
+        #expect(!sent.contains("third"))               // 3rd hit dropped (maxHits 2)
+        #expect(sent.hasSuffix("recall"))              // raw prompt preserved at end
+    }
 }

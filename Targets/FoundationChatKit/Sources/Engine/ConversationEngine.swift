@@ -105,7 +105,11 @@ public final class ConversationEngine {
         // while the on-screen bubble and persisted row keep the RAW prompt (clean UX). The
         // augmented text lands in the transcript, so it's budgeted and shown in the inspector.
         let hits = memoryRetrieval?.retrieve(prompt) ?? []
-        let augmented = MemoryContextBlock.augment(prompt: prompt, with: hits)
+        let memoryBlock = MemoryContextBlock.wrap(
+            hits,
+            maxHits: settings.memoryInjectionMaxHits,
+            maxCharsPerHit: settings.memoryInjectionMaxCharsPerHit)
+        let augmented = memoryBlock.isEmpty ? prompt : "\(memoryBlock)\n\(prompt)"
         if memoryRetrieval != nil {
             EmberLog.turn.info("performTurn: \(hits.count, privacy: .public) memory hit(s) → prompt \(augmented == prompt ? "NOT augmented" : "augmented", privacy: .public)")
         }
