@@ -33,7 +33,8 @@ struct ConversationEngineTests {
 
     @Test func overflowSeedsNewSessionFromCondensedEntries() async {
         let provider = MockModelProvider()
-        provider.summarizeResult = "RECAP"
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "RECAP", keyTopics: [], userPreferences: [])
         provider.session.contextEntries = [
             ContextEntry(kind: .userPrompt, text: "first"),
             ContextEntry(kind: .modelResponse, text: "a"),
