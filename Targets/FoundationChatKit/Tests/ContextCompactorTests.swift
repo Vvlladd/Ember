@@ -8,7 +8,9 @@ struct ContextCompactorTests {
         (0..<n).map { ContextEntry(kind: $0 % 2 == 0 ? .userPrompt : .modelResponse, text: "msg\($0)") }
     }
     @Test func summarizesOlderKeepsRecent() async {
-        let p = MockModelProvider(); p.summarizeResult = "RECAP"
+        let p = MockModelProvider()
+        p.scriptedStructuredSummary = ConversationSummary(
+            summary: "RECAP", keyTopics: [], userPreferences: [])
         let result = await ContextCompactor.compact(entries(10), keepingRecent: 4, using: p)
         #expect(result.count == 5)                       // 1 recap + 4 recent
         #expect(result.first?.kind == .instructions)
@@ -31,7 +33,9 @@ struct ContextCompactorTests {
     /// into the instructions-channel recap. The summary the compactor builds should contain the
     /// older user/assistant text but NOT the `.retrievedMemory` entry's text.
     @Test func excludesRetrievedMemoryFromSummaryInput() async {
-        let p = MockModelProvider(); p.summarizeResult = "RECAP"
+        let p = MockModelProvider()
+        p.scriptedStructuredSummary = ConversationSummary(
+            summary: "RECAP", keyTopics: [], userPreferences: [])
         let older: [ContextEntry] = [
             ContextEntry(kind: .userPrompt, text: "USER_OLD"),
             ContextEntry(kind: .retrievedMemory, text: "SECRET_MEMORY"),
@@ -39,9 +43,44 @@ struct ContextCompactorTests {
         ]
         let recent = entries(4)
         _ = await ContextCompactor.compact(older + recent, keepingRecent: 4, using: p)
-        let captured = p.capturedSummarizeInput ?? ""
+        let captured = p.capturedStructuredSummarizeInput ?? ""
         #expect(captured.contains("USER_OLD"))
         #expect(captured.contains("ASSISTANT_OLD"))
         #expect(!captured.contains("SECRET_MEMORY"))
+    }
+
+    @Test func compactUsesStructuredSummaryAndRendersIt() async {
+        let provider = MockModelProvider()
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "Planned a Lisbon trip.", keyTopics: ["Lisbon"],
+            userPreferences: ["User prefers boutique hotels"])
+        let result = await ContextCompactor.compact(entries(10), keepingRecent: 4, using: provider)
+        let recap = result.first { $0.kind == .instructions }
+        #expect(recap?.text.contains("Planned a Lisbon trip.") == true)
+        #expect(recap?.text.contains("Lisbon") == true)
+        #expect(recap?.text.contains("boutique hotels") == true)
+    }
+
+    @Test func compactHarvestsUserPreferencesViaCallback() async {
+        let provider = MockModelProvider()
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "Chat.", keyTopics: [],
+            userPreferences: ["User is vegetarian", "User prefers aisle seats"])
+        var harvested: [String] = []
+        _ = await ContextCompactor.compact(entries(10), keepingRecent: 4, using: provider) {
+            harvested.append($0)
+        }
+        #expect(harvested == ["User is vegetarian", "User prefers aisle seats"])
+    }
+
+    @Test func compactFallsBackWhenStructuredSummaryNil() async {
+        let provider = MockModelProvider()
+        provider.scriptedStructuredSummary = nil   // forces the deterministic fallback
+        var harvested: [String] = []
+        let out = await ContextCompactor.compact(entries(10), keepingRecent: 4, using: provider) {
+            harvested.append($0)
+        }
+        #expect(!out.isEmpty)            // condensed fallback still returns entries
+        #expect(harvested.isEmpty)       // no prefs harvested when summary is nil
     }
 }

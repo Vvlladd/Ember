@@ -60,4 +60,83 @@ struct MemoryContextBlockTests {
         let hit = MemoryHit(record: rec, score: 1)
         #expect(MemoryContextBlock.formatHit(hit) == "From 'Code' — Assistant: debugging swift code")
     }
+
+    @Test func truncateLeavesShortTextUntouched() {
+        #expect(MemoryContextBlock.truncate("short fact", maxChars: 240) == "short fact")
+    }
+
+    @Test func truncateClampsLongTextWithEllipsis() {
+        let long = String(repeating: "a", count: 300)
+        let out = MemoryContextBlock.truncate(long, maxChars: 240)
+        #expect(out.count == 241)            // 240 chars + the single ellipsis Character (U+2026)
+        #expect(out.hasSuffix("\u{2026}"))
+    }
+
+    @Test func truncateAtExactBoundaryIsUnchanged() {
+        let exact = String(repeating: "b", count: 240)
+        #expect(MemoryContextBlock.truncate(exact, maxChars: 240) == exact)
+    }
+
+    @Test func truncateTrimsTrailingWhitespaceBeforeEllipsis() {
+        let text = String(repeating: "c", count: 238) + "   xyz"   // 244 chars
+        let out = MemoryContextBlock.truncate(text, maxChars: 240)
+        #expect(out.hasSuffix("\u{2026}"))
+        #expect(!out.contains("  \u{2026}"))   // no double-space before ellipsis
+    }
+
+    private func hit(_ text: String, score: Float, source: MemoryRecord.Source = .conversation) -> MemoryHit {
+        MemoryHit(record: MemoryRecord(
+            messageID: UUID(), conversationID: UUID(), conversationTitle: "Past",
+            role: .user, text: text, vector: [], source: source), score: score)
+    }
+
+    @Test func wrapLimitsToMaxHits() {
+        let hits = [hit("first", score: 0.9), hit("second", score: 0.8), hit("third", score: 0.7),
+                    hit("fourth", score: 0.6)]
+        let block = MemoryContextBlock.wrap(hits, maxHits: 2, maxCharsPerHit: 240)
+        #expect(block.contains("first"))
+        #expect(block.contains("second"))
+        #expect(!block.contains("third"))
+        #expect(!block.contains("fourth"))
+    }
+
+    @Test func wrapTruncatesEachHit() {
+        let long = String(repeating: "z", count: 300)
+        let block = MemoryContextBlock.wrap([hit(long, score: 0.9)], maxHits: 3, maxCharsPerHit: 50)
+        #expect(block.contains("\u{2026}"))
+        #expect(!block.contains(long))
+    }
+
+    @Test func wrapDefaultsMatchCanonical() {
+        // Zero-arg-defaulted overload still works (maxHits 3, maxCharsPerHit 240).
+        let hits = (0..<5).map { hit("fact\($0)", score: Float(5 - $0) / 5) }
+        let block = MemoryContextBlock.wrap(hits)
+        #expect(block.contains("fact0"))
+        #expect(block.contains("fact2"))
+        #expect(!block.contains("fact3"))   // capped at 3
+    }
+
+    @Test func augmentPrependsLimitedBlock() {
+        let hits = [hit("alpha", score: 0.9), hit("beta", score: 0.8), hit("gamma", score: 0.7),
+                    hit("delta", score: 0.6)]
+        let out = MemoryContextBlock.augment(prompt: "What now?", with: hits,
+                                             maxHits: 2, maxCharsPerHit: 240)
+        #expect(out.contains("alpha"))
+        #expect(out.contains("beta"))
+        #expect(!out.contains("gamma"))
+        #expect(out.hasSuffix("What now?"))
+    }
+
+    @Test func augmentWithNoHitsReturnsPrompt() {
+        #expect(MemoryContextBlock.augment(prompt: "hi", with: [], maxHits: 3, maxCharsPerHit: 240) == "hi")
+    }
+
+    @Test func augmentThenSplitStillRoundTripsShortHits() {
+        // Short hits never trigger truncation, so the existing split() contract is preserved.
+        let hits = [hit("User loves Lisbon", score: 0.9), hit("User has a dog", score: 0.8)]
+        let augmented = MemoryContextBlock.augment(prompt: "Where to?", with: hits)
+        let parts = MemoryContextBlock.split(augmented)
+        #expect(parts.memory?.contains("User loves Lisbon") == true)
+        #expect(parts.userText == "Where to?")   // CORRECTED: split returns .userText, not .prompt
+    }
 }

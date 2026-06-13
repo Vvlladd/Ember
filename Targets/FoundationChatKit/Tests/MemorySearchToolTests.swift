@@ -31,4 +31,18 @@ struct MemorySearchToolTests {
         let result = try await tool.call(arguments: .init(query: "paris trip"))
         #expect(!result.contains("trip to paris"))
     }
+    @Test func toolUsesHybridBlendButKeepsFallbackForNoMatch() async throws {
+        // Existing fallback contract must survive the hybrid switch: an off-vocab, off-topic query
+        // still returns the no-match fallback (not a spurious near-miss).
+        let tool = MemorySearchTool(embedder: MockEmbedder(), snapshot: snapshot())
+        let result = try await tool.call(arguments: .init(query: "music dog weather"))
+        #expect(result.contains("No relevant earlier context found."))
+    }
+    @Test func toolStillReturnsLexicalMatch() async throws {
+        // "trip to paris" snapshot record shares words with the query → hybrid surfaces it even if
+        // the embedder vector were weak. Confirms query+lexicalWeight are threaded.
+        let tool = MemorySearchTool(embedder: MockEmbedder(), snapshot: snapshot())
+        let result = try await tool.call(arguments: .init(query: "paris trip"))
+        #expect(result.contains("trip to paris"))
+    }
 }

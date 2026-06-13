@@ -6,9 +6,9 @@ import os
 /// session so it never pollutes the chat transcript. Returns nil on any failure (caller falls
 /// back to saving nothing). An empty array means "nothing worth remembering".
 enum MemoryExtractor {
-    @Generable
+    @Generable(description: "Durable facts about the USER extracted from one chat exchange.")
     struct ExtractedMemories {
-        @Guide(description: "One durable fact about the USER (a stable preference, plan, or personal detail). Omit if nothing qualifies.")
+        @Guide(description: "One durable fact about the USER (a stable preference, plan, or personal detail). Omit if nothing qualifies. At most 5.", .maximumCount(5))
         var facts: [String]
     }
 
@@ -34,7 +34,10 @@ enum MemoryExtractor {
             Assistant: \(assistantText)
             """
         do {
-            let response = try await session.respond(to: prompt, generating: ExtractedMemories.self)
+            let response = try await session.respond(
+                to: prompt,
+                generating: ExtractedMemories.self,
+                options: UtilityGenerationOptions.extraction)
             let facts = durableFacts(from: response.content.facts)
             EmberLog.extraction.info("MemoryExtractor: kept \(facts.count, privacy: .public) of \(response.content.facts.count, privacy: .public) fact(s): [\(facts.joined(separator: " || "), privacy: .public)]")
             return facts
@@ -57,10 +60,15 @@ enum MemoryExtractor {
         "i can offer", "based on my interests", "as an ai"
     ]
 
+    /// Hard cap on facts kept per exchange — mirrors the `.maximumCount(5)` guide so a model
+    /// that over-produces can't flood the note store on a single turn.
+    static let maxFactsPerExchange = 5
+
     /// Pure post-filter on extracted facts: trims, drops empties, greetings/acknowledgements, and
-    /// assistant-self-referential lines. Deterministic so it can be unit-tested off-device.
+    /// assistant-self-referential lines, then caps to `maxFactsPerExchange`. Deterministic so it
+    /// can be unit-tested off-device.
     static func durableFacts(from raw: [String]) -> [String] {
-        raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        Array(raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { fact in
                 let normalized = fact.lowercased().trimmingCharacters(in: CharacterSet.letters.inverted)
@@ -69,5 +77,6 @@ enum MemoryExtractor {
                 if assistantMarkers.contains(where: { lower.contains($0) }) { return false }
                 return true
             }
+            .prefix(maxFactsPerExchange))
     }
 }

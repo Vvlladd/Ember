@@ -17,4 +17,17 @@ struct ConversationTitlingTests {
             forFirstExchange: TitleSeed(userText: "hi", assistantText: "hello"))
         #expect(title == nil)
     }
+
+    @Test func conversationTitleClampsToFiveWords() {
+        let long = "A Very Long Title That Goes On And On Forever"
+        #expect(ConversationTitler.clampTitle(long) == "A Very Long Title That")
+    }
+
+    @Test func conversationTitleTrimsAndKeepsShortTitles() {
+        #expect(ConversationTitler.clampTitle("  Lisbon Trip Plans  ") == "Lisbon Trip Plans")
+    }
+
+    @Test func conversationTitleEmptyStaysEmpty() {
+        #expect(ConversationTitler.clampTitle("   ") == "")
+    }
 }

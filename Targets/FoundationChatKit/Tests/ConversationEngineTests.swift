@@ -33,7 +33,8 @@ struct ConversationEngineTests {
 
     @Test func overflowSeedsNewSessionFromCondensedEntries() async {
         let provider = MockModelProvider()
-        provider.summarizeResult = "RECAP"
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "RECAP", keyTopics: [], userPreferences: [])
         provider.session.contextEntries = [
             ContextEntry(kind: .userPrompt, text: "first"),
             ContextEntry(kind: .modelResponse, text: "a"),
@@ -194,5 +195,101 @@ struct ConversationEngineTests {
         await engine.send("hi")
         #expect(provider.session.streamCallCount == 1)        // no retry
         #expect(engine.lastError == .guardrailViolation)
+    }
+
+    // MARK: - Plan 10 WS2: injection knobs (inject-fewer / truncate)
+
+    @Test func injectsAtMostMaxHitsAndTruncates() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["ok"]
+        let longFact = String(repeating: "q", count: 400)
+        let hits = [
+            MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                conversationTitle: "Past", role: .user, text: longFact, vector: [], source: .note), score: 0.9),
+            MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                conversationTitle: "Past", role: .user, text: "second", vector: [], source: .note), score: 0.8),
+            MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                conversationTitle: "Past", role: .user, text: "third", vector: [], source: .note), score: 0.7),
+            MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                conversationTitle: "Past", role: .user, text: "fourth", vector: [], source: .note), score: 0.6)
+        ]
+        let settings = GenerationSettings(memoryInjectionMaxHits: 2, memoryInjectionMaxCharsPerHit: 60)
+        let retrieval = ConversationEngine.MemoryRetrieval { _ in hits }
+        let engine = ConversationEngine(provider: provider, settings: settings, memoryRetrieval: retrieval)
+
+        await engine.send("recall")
+
+        let sent = provider.session.lastStreamedPrompt ?? ""
+        #expect(sent.contains("\u{2026}"))             // first hit truncated
+        #expect(!sent.contains(longFact))              // full long fact not present
+        #expect(sent.contains("second"))               // 2nd hit kept
+        #expect(!sent.contains("third"))               // 3rd hit dropped (maxHits 2)
+        #expect(sent.hasSuffix("recall"))              // raw prompt preserved at end
+    }
+
+    // MARK: - Plan 10 WS2 (2.4b): injected memory block accounted as a budget line
+
+    @Test func memoryBlockShowsAsBudgetLineAfterTurn() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["hi", "hello"]
+        let hits = [MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+            conversationTitle: "Past", role: .user, text: "User loves Lisbon", vector: [], source: .note), score: 0.9)]
+        let retrieval = ConversationEngine.MemoryRetrieval { _ in hits }
+        let engine = ConversationEngine(provider: provider, memoryRetrieval: retrieval)
+
+        await engine.send("where to?")
+
+        let memoryLine = engine.budget.lines.first { $0.label == "Retrieved memory" }
+        #expect(memoryLine != nil)
+        #expect((memoryLine?.tokens ?? 0) > 0)
+    }
+
+    @Test func memoryBlockLineClearedOnNextTurnWithNoHits() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["one", "two"]
+        var hitsToReturn = [MemoryHit(record: MemoryRecord(messageID: UUID(), conversationID: UUID(),
+            conversationTitle: "Past", role: .user, text: "User loves Lisbon", vector: [], source: .note), score: 0.9)]
+        let retrieval = ConversationEngine.MemoryRetrieval { _ in hitsToReturn }
+        let engine = ConversationEngine(provider: provider, memoryRetrieval: retrieval)
+        await engine.send("first")
+        hitsToReturn = []                 // no memory next turn
+        await engine.send("second")
+        #expect(engine.budget.lines.first { $0.label == "Retrieved memory" } == nil)
+    }
+
+    @Test func compactionRoutesPreferencesToCallback() async {
+        let provider = MockModelProvider()
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "Chat.", keyTopics: [], userPreferences: ["User prefers tea"])
+        // Force compaction: tiny window so the projected turn overflows, with > keepingRecent(4)
+        // seeded entries so the compactor actually summarizes (and harvests) the older ones.
+        provider.maxContextTokens = 40
+        let seeded = (0..<6).map { ContextEntry(kind: .userPrompt, text: "earlier message number \($0)") }
+        provider.session.contextEntries = seeded
+        provider.session.scriptedSnapshots = ["ok"]
+
+        var savedPrefs: [String] = []
+        let engine = ConversationEngine(
+            provider: provider,
+            settings: GenerationSettings(reservedReplyTokens: 8),
+            restoringEntries: seeded,
+            onCompactionPreference: { savedPrefs.append($0) })
+
+        await engine.send("first message that is long enough to matter for budgeting here")
+        await engine.send("second message that should push us over the tiny window now")
+
+        #expect(savedPrefs.contains("User prefers tea"))
+    }
+
+    @Test func engineExposesTokenBreakdownWithReserve() async {
+        let provider = MockModelProvider()
+        provider.session.scriptedSnapshots = ["Hello there"]
+        let engine = ConversationEngine(provider: provider,
+                                        settings: GenerationSettings(reservedReplyTokens: 512))
+        await engine.send("hi")
+        let b = engine.tokenBreakdown
+        #expect(b.replyReserve == 512)
+        #expect(b.total >= b.history)             // total includes history + reserve
+        #expect(b.history > 0)                    // a turn happened
     }
 }

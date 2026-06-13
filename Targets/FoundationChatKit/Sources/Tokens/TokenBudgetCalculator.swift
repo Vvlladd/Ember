@@ -42,6 +42,33 @@ public struct TokenBudgetCalculator: Sendable {
         return TokenBudgetSnapshot(maxTokens: maxTokens, usedTokens: used, isExact: isExact, lines: lines)
     }
 
+    /// Fold a snapshot's labeled lines into the five inspector buckets, adding the externally
+    /// supplied reply reserve. Pure: it re-buckets existing per-line counts, no re-tokenizing.
+    /// Both the committed `.retrievedMemory` entry label ("Memory") and WS2's synthetic in-flight
+    /// "Retrieved memory" line map to retrievedMemory as defense-in-depth; in production the WS2
+    /// guard ensures only one of them is present at a time.
+    public func breakdown(from snapshot: TokenBudgetSnapshot, replyReserve: Int) -> TokenBreakdown {
+        var instructions = 0, tools = 0, history = 0, retrievedMemory = 0
+        for line in snapshot.lines {
+            if line.label == "Instructions" {
+                instructions += line.tokens
+            } else if line.label.hasPrefix("Tool: ") {
+                tools += line.tokens
+            } else if line.label == Self.label(for: .retrievedMemory) || line.label == Self.retrievedMemoryInFlightLabel {
+                retrievedMemory += line.tokens
+            } else {
+                // You / Assistant / Assistant (typing…) / Tool call / Tool output → history.
+                history += line.tokens
+            }
+        }
+        return TokenBreakdown(instructions: instructions, tools: tools, history: history,
+                              retrievedMemory: retrievedMemory, replyReserve: replyReserve)
+    }
+
+    /// Budget-line label for the in-flight injected memory block (Plan 10 WS2's synthetic line),
+    /// shared so the engine emitter and `breakdown`'s bucketer can't drift apart.
+    public static let retrievedMemoryInFlightLabel = "Retrieved memory"
+
     static func label(for kind: ContextEntryKind) -> String {
         switch kind {
         case .instructions: return "Instructions"

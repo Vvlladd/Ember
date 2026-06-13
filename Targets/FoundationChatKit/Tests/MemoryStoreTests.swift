@@ -205,4 +205,57 @@ struct MemoryStoreTests {
         _ = mem.snapshot()
         #expect(mem.snapshotBuildCount == 1)
     }
+
+    // MARK: - Hybrid retrieval (cosine + lexical), Plan 10 WS3
+
+    @Test func hybridSurfacesStrongLexicalWeakCosineRecord() {
+        let a = MemoryRecord(messageID: UUID(), conversationID: UUID(), conversationTitle: "Past",
+            role: .user, text: "User is planning a Lisbon trip", vector: [1, 0, 0], source: .note)
+        let b = MemoryRecord(messageID: UUID(), conversationID: UUID(), conversationTitle: "Past",
+            role: .user, text: "User dislikes cilantro", vector: [0, 1, 0], source: .note)
+        let snapshot = [a, b]
+        let hits = MemoryStore.search(snapshot, query: "what to pack for the Lisbon trip",
+                                      queryVector: [0, 0, 1], topK: 2, threshold: 0.2,
+                                      lexicalWeight: 0.6)
+        #expect(hits.first?.record.messageID == a.messageID)   // A ranked first via lexical signal
+    }
+
+    @Test func hybridStillReturnsStrongSemanticNoLexicalRecord() {
+        let semantic = MemoryRecord(messageID: UUID(), conversationID: UUID(), conversationTitle: "Past",
+            role: .user, text: "viagem para a capital", vector: [1, 0, 0], source: .note)
+        let hits = MemoryStore.search([semantic], query: "trip plans", queryVector: [1, 0, 0],
+                                      topK: 1, threshold: 0.2, lexicalWeight: 0.5)
+        #expect(hits.count == 1)
+        #expect(hits.first?.record.messageID == semantic.messageID)
+    }
+
+    @Test func hybridLetsUnembeddedNoteMatchLexically() {
+        let note = MemoryRecord(messageID: UUID(), conversationID: UUID(), conversationTitle: "Saved",
+            role: .user, text: "User loves hiking in the Alps", vector: [], source: .note)
+        let hits = MemoryStore.search([note], query: "hiking Alps", queryVector: [0.2, 0.2, 0.2],
+                                      topK: 1, threshold: 0.2, lexicalWeight: 0.7)
+        #expect(hits.count == 1)   // matched on lexical alone (no vector)
+    }
+
+    @Test func hybridRespectsTopKAndExclusion() {
+        let a = MemoryRecord(messageID: UUID(), conversationID: UUID(), conversationTitle: "P",
+            role: .user, text: "Lisbon trip", vector: [1, 0], source: .note)
+        let b = MemoryRecord(messageID: UUID(), conversationID: UUID(), conversationTitle: "P",
+            role: .user, text: "Lisbon plans", vector: [1, 0], source: .note)
+        let hits = MemoryStore.search([a, b], query: "Lisbon", queryVector: [1, 0],
+                                      topK: 1, threshold: 0.0, lexicalWeight: 0.5,
+                                      excludingMessageIDs: [a.messageID])
+        #expect(hits.count == 1)
+        #expect(hits.first?.record.messageID == b.messageID)
+    }
+
+    @Test func lexicalWeightZeroEqualsCosineOnly() {
+        let r = MemoryRecord(messageID: UUID(), conversationID: UUID(), conversationTitle: "P",
+            role: .user, text: "unrelated words", vector: [1, 0, 0], source: .note)
+        let hybrid = MemoryStore.search([r], query: "totally different", queryVector: [1, 0, 0],
+                                        topK: 1, threshold: 0.2, lexicalWeight: 0.0)
+        let cosine = MemoryStore.search([r], queryVector: [1, 0, 0], topK: 1, threshold: 0.2)
+        // Exact equality holds by construction: lexicalWeight 0 returns the cosine path verbatim.
+        #expect(hybrid.first?.score == cosine.first?.score)
+    }
 }

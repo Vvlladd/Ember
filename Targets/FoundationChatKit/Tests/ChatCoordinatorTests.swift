@@ -214,4 +214,20 @@ struct ChatCoordinatorTests {
         }
         #expect(matches.count == 1)
     }
+
+    /// A note that shares surface words with the query but contains NO MockEmbedder-vocabulary
+    /// word, so the query is unembeddable (cosine path early-returned / scored 0). Proves the
+    /// retriever now passes the raw query + lexicalWeight through MemoryStore.search so word-overlap
+    /// recall works even when the embedder yields no vector. (lastStreamedPrompt added in WS2 2.4a.)
+    @Test func wordOverlapQueryRetrievesViaHybridPath() async throws {
+        let (coord, provider, memory) = try makeWithMemory()
+        memory.saveNote("User is moving house and needs boxes for the relocate")
+        coord.newConversation()
+        provider.session.scriptedSnapshots = ["Pack light."]
+
+        await coord.send("should I get boxes for moving and relocate")
+
+        let sent = provider.session.lastStreamedPrompt ?? ""
+        #expect(sent.contains("moving house"))
+    }
 }

@@ -7,7 +7,8 @@ struct OverflowCompactionTests {
     @Test func proactivelyCompactsBeforeOverflow() async {
         let provider = MockModelProvider()
         provider.maxContextTokens = 60
-        provider.summarizeResult = "RECAP"
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "RECAP", keyTopics: [], userPreferences: [])
         let seeded = (0..<8).map { ContextEntry(kind: .userPrompt, text: "some earlier message number \($0)") }
         provider.session.contextEntries = seeded
         provider.session.scriptedSnapshots = ["ok"]
@@ -21,7 +22,8 @@ struct OverflowCompactionTests {
     }
     @Test func reactiveRecoveryUsesCompactor() async {
         let provider = MockModelProvider()
-        provider.summarizeResult = "RECAP"
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "RECAP", keyTopics: [], userPreferences: [])
         let seeded = (0..<8).map { ContextEntry(kind: .userPrompt, text: "m\($0)") }
         provider.session.contextEntries = seeded
         provider.session.scriptedSnapshots = ["partial"]

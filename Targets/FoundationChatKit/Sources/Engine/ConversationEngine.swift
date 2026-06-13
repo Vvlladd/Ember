@@ -42,6 +42,12 @@ public final class ConversationEngine {
     /// Tokens kept free for the model's reply (drives proactive compaction + the Tokens tab).
     public var reservedReplyTokens: Int { settings.reservedReplyTokens }
 
+    /// Per-bucket token breakdown for the inspector (Plan 10 WS5), derived from the current
+    /// budget snapshot plus the reserved reply headroom.
+    public var tokenBreakdown: TokenBreakdown {
+        calculator.breakdown(from: budget, replyReserve: settings.reservedReplyTokens)
+    }
+
     private let provider: any ChatModelProvider
     private var session: any ChatSessionHandle
     private let tools: [any Tool]
@@ -50,8 +56,18 @@ public final class ConversationEngine {
     private let calculator: TokenBudgetCalculator
     private let persistence: ConversationPersistence?
     private let memoryRetrieval: MemoryRetrieval?
+    /// Injected by the app to durably persist user preferences harvested during compaction (the
+    /// structured summary's `userPreferences`). Routed into `ContextCompactor.compact(onPreference:)`
+    /// at both compaction sites; `nil` (default) keeps harvesting off, so existing call sites compile.
+    private let onCompactionPreference: (@MainActor (String) -> Void)?
     private let now: () -> Date
     private var turnTask: Task<Void, Never>?
+
+    /// The memory block injected on the current turn (empty between turns). Accounted as a
+    /// "Retrieved memory" budget line so the Tokens tab reflects RAG cost immediately, not
+    /// only after the model commits the augmented prompt into the transcript. Cleared at the
+    /// END of performTurn (after refreshExactBudget), so the post-turn budget keeps the line.
+    private var pendingMemoryBlock: String = ""
 
     public init(
         provider: any ChatModelProvider,
@@ -61,6 +77,7 @@ public final class ConversationEngine {
         tools: [any Tool] = [],
         persistence: ConversationPersistence? = nil,
         memoryRetrieval: MemoryRetrieval? = nil,
+        onCompactionPreference: (@MainActor (String) -> Void)? = nil,
         calculator: TokenBudgetCalculator = TokenBudgetCalculator(),
         now: @escaping () -> Date = Date.init
     ) {
@@ -69,6 +86,7 @@ public final class ConversationEngine {
         self.calculator = calculator
         self.persistence = persistence
         self.memoryRetrieval = memoryRetrieval
+        self.onCompactionPreference = onCompactionPreference
         self.now = now
         self.tools = tools
         self.toolAccounting = Toolbox.accountingMetadata(for: tools)
@@ -105,7 +123,14 @@ public final class ConversationEngine {
         // while the on-screen bubble and persisted row keep the RAW prompt (clean UX). The
         // augmented text lands in the transcript, so it's budgeted and shown in the inspector.
         let hits = memoryRetrieval?.retrieve(prompt) ?? []
-        let augmented = MemoryContextBlock.augment(prompt: prompt, with: hits)
+        let memoryBlock = MemoryContextBlock.wrap(
+            hits,
+            maxHits: settings.memoryInjectionMaxHits,
+            maxCharsPerHit: settings.memoryInjectionMaxCharsPerHit)
+        pendingMemoryBlock = memoryBlock
+        // Inline `"\(block)\n\(prompt)"` join — canonical equivalent is
+        // `MemoryContextBlock.augment(prompt:with:...)` (same join). Keep the two sites in sync.
+        let augmented = memoryBlock.isEmpty ? prompt : "\(memoryBlock)\n\(prompt)"
         if memoryRetrieval != nil {
             EmberLog.turn.info("performTurn: \(hits.count, privacy: .public) memory hit(s) → prompt \(augmented == prompt ? "NOT augmented" : "augmented", privacy: .public)")
         }
@@ -128,11 +153,13 @@ public final class ConversationEngine {
                 recomputeBudget(inFlight: nil)
                 finalizeAssistant(at: assistantIndex)
                 await refreshExactBudget()
+                pendingMemoryBlock = ""      // cleared AFTER the post-turn budget keeps the line
                 return
             } catch is CancellationError {
                 if assistantIndex < messages.count { messages[assistantIndex].isStreaming = false }
                 finalizeAssistant(at: assistantIndex)
                 await refreshExactBudget()
+                pendingMemoryBlock = ""      // cleared AFTER the post-turn budget keeps the line
                 return
             } catch {
                 let chatError = (error as? ChatError) ?? .unknown(String(describing: error))
@@ -143,6 +170,7 @@ public final class ConversationEngine {
                     continue
                 }
                 EmberLog.turn.error("performTurn: stream threw — \(String(describing: error), privacy: .public)")
+                pendingMemoryBlock = ""      // failed turn must not leave a stale block
                 await handle(error, assistantIndex: assistantIndex)
                 return
             }
@@ -195,7 +223,8 @@ public final class ConversationEngine {
     private func compactIfNeeded(for prompt: String) async {
         let projected = budget.usedTokens + calculator.estimate(prompt) + settings.reservedReplyTokens
         guard projected > provider.maxContextTokens, session.contextEntries.count > 1 else { return }
-        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider)
+        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider,
+                                                       onPreference: onCompactionPreference)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Older turns were summarized to make room.",
@@ -207,7 +236,8 @@ public final class ConversationEngine {
     }
 
     private func recoverFromOverflow() async {
-        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider)
+        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider,
+                                                       onPreference: onCompactionPreference)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Context window was full — older turns were compacted to keep the chat going.",
@@ -218,9 +248,26 @@ public final class ConversationEngine {
         persistence?.recordResumeState(session.encodedTranscript(), budget.usedTokens)
     }
 
+    /// Append a synthetic "Retrieved memory" budget line for the in-flight injected block, unless
+    /// the session already committed it as a `.retrievedMemory` entry (then the calculator counts
+    /// it and we must not double-count). Shared by recomputeBudget + refreshExactBudget so the
+    /// line survives the post-turn exact rebuild.
+    private func injectingPendingMemory(into snapshot: TokenBudgetSnapshot) -> TokenBudgetSnapshot {
+        guard !pendingMemoryBlock.isEmpty,
+              !session.contextEntries.contains(where: { $0.kind == .retrievedMemory }) else {
+            return snapshot
+        }
+        let tokens = calculator.estimate(pendingMemoryBlock)
+        var lines = snapshot.lines
+        lines.append(BudgetLine(id: lines.count, label: TokenBudgetCalculator.retrievedMemoryInFlightLabel, tokens: tokens))
+        return TokenBudgetSnapshot(maxTokens: snapshot.maxTokens,
+                                   usedTokens: snapshot.usedTokens + tokens,
+                                   isExact: snapshot.isExact, lines: lines)
+    }
+
     private func recomputeBudget(inFlight: String?) {
         let providerRef = provider
-        budget = calculator.snapshot(
+        let snapshot = calculator.snapshot(
             maxTokens: providerRef.maxContextTokens,
             instructions: settings.instructions,
             entries: session.contextEntries,
@@ -228,6 +275,7 @@ public final class ConversationEngine {
             tools: toolAccounting,
             exactCount: { text in providerRef.tokenCount(for: text) }
         )
+        budget = injectingPendingMemory(into: snapshot)
     }
 
     /// Recompute the budget using exact async token counts (26.4+). Reuses the synchronous
@@ -244,7 +292,7 @@ public final class ConversationEngine {
         if let instructions = settings.instructions { await fill(instructions) }
         for entry in session.contextEntries { await fill(entry.text) }
         for tool in toolAccounting { await fill(tool.schemaDigest) }
-        budget = calculator.snapshot(
+        let snapshot = calculator.snapshot(
             maxTokens: providerRef.maxContextTokens,
             instructions: settings.instructions,
             entries: session.contextEntries,
@@ -252,5 +300,6 @@ public final class ConversationEngine {
             tools: toolAccounting,
             exactCount: { cache[$0] }
         )
+        budget = injectingPendingMemory(into: snapshot)
     }
 }

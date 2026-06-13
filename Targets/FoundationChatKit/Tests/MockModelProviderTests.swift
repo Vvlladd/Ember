@@ -47,4 +47,20 @@ struct MockModelProviderTests {
         let facts = await provider.extractMemories(userText: "hi", assistantText: "hello")
         #expect(facts == [])
     }
+
+    @Test func mockSummarizeStructuredReturnsScripted() async {
+        let provider = MockModelProvider()
+        provider.scriptedStructuredSummary = ConversationSummary(
+            summary: "A planning chat.", keyTopics: ["Lisbon"],
+            userPreferences: ["User prefers window seats"])
+        let result = await provider.summarizeStructured("long history text")
+        #expect(result?.summary == "A planning chat.")
+        #expect(result?.userPreferences == ["User prefers window seats"])
+        #expect(provider.capturedStructuredSummarizeInput == "long history text")
+    }
+
+    @Test func mockSummarizeStructuredNilByDefault() async {
+        let provider = MockModelProvider()
+        #expect(await provider.summarizeStructured("x") == nil)
+    }
 }
