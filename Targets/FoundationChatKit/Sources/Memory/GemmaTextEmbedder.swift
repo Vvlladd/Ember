@@ -20,7 +20,11 @@ public final class GemmaTextEmbedder: TextEmbedder, @unchecked Sendable {
     /// The resource load. Implicitly unwrapped because the loader closure captures `self`, which is
     /// only legal once every other stored property has a value — so this is assigned last.
     private var loadTask: Task<Void, Never>!
-    private static let sequenceLength = 256   // must match scripts/convert_embeddinggemma.py SEQ_LEN
+    /// Must match `SEQ_LEN` in scripts/convert_embeddinggemma.py. NOTE: this is not only about short
+    /// curated notes — `MemoryStore.index` embeds FULL message text, so anything past 256 tokens is
+    /// silently dropped from its vector. Whether to raise this or chunk long messages is an open
+    /// follow-up; it needs a measured latency/recall decision on a machine that has the weights.
+    private static let sequenceLength = 256
     /// Padding token id for positions beyond the encoded length. UNVERIFIED: the converted
     /// tokenizer's `tokenizer_config.json` (`pad_token_id`) is not on this machine yet — this must
     /// be confirmed against the real weights/tokenizer before shipping. If it differs, fix here only.

@@ -7,13 +7,18 @@ Ends with a parity check: CoreML output vs sentence-transformers output, cosine 
 VERIFY against the model card (https://ai.google.dev/gemma/docs/embeddinggemma) that the
 prompt prefixes match GemmaEmbeddingFormat.swift before shipping.
 """
-import numpy as np, shutil, torch, coremltools as ct
+import numpy as np, torch, coremltools as ct
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
 
 MODEL_ID = "google/embeddinggemma-300m"
-SEQ_LEN = 256          # memory snippets are <=240 chars (~64 tokens); 256 is generous headroom
-OUT = Path("Targets/Ember/Resources/Models")
+# Must match GemmaTextEmbedder.sequenceLength. Curated notes are short, but MemoryStore.index embeds
+# FULL message text, so anything past this is silently truncated out of the vector. Raising it (or
+# chunking long messages) is an open follow-up pending a measured latency/recall call.
+SEQ_LEN = 256
+# Anchored to the repo root via this file's location so the script works when invoked directly,
+# not just through fetch_embeddinggemma.sh (which cd's to the root first).
+OUT = Path(__file__).resolve().parent.parent / "Targets/Ember/Resources/Models"
 
 st = SentenceTransformer(MODEL_ID)
 st.eval()
@@ -45,7 +50,6 @@ mlmodel.save(str(OUT / "EmbeddingGemma.mlpackage"))
 
 tok_dir = OUT / "tokenizer"
 tok_dir.mkdir(exist_ok=True)
-src = Path(st.tokenizer.name_or_path) if Path(st.tokenizer.name_or_path).is_dir() else None
 st.tokenizer.save_pretrained(str(tok_dir))
 
 # Parity check

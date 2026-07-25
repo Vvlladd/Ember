@@ -2,7 +2,9 @@ import Foundation
 
 /// EmbeddingGemma's task-prefix prompt format and Matryoshka output handling. Pure — unit-tested
 /// without the model. The prefix strings come from the EmbeddingGemma model card; if the card
-/// disagrees, THIS is the single place to fix (and re-run scripts/convert parity with the same text).
+/// disagrees, THIS is the single place to fix (and re-run scripts/convert parity with the same text)
+/// — and bump `GemmaTextEmbedder.identity.id`, because changing a prefix changes the vector space,
+/// so every already-stored vector must be re-embedded rather than silently cosine-compared.
 public enum GemmaEmbeddingFormat {
     public static func prompt(_ text: String, role: EmbeddingRole) -> String {
         switch role {

@@ -52,6 +52,13 @@ public final class MemoryStore {
     /// absent the note is still stored and visible/recoverable in `snapshot()` (scores 0 in cosine,
     /// so it is harmlessly filtered out of search by the threshold).
     /// Invalidates the snapshot cache so the next read includes the new note.
+    ///
+    /// CAREFUL: a nil `embedderID` does DOUBLE DUTY — it means both "row written before versioning
+    /// existed" (legacy NLEmbedding, per `effectiveEmbedderID`) and "never embedded at all" (this
+    /// path, when `embed` returned nil). That is only safe because `liveVector` and `backfill`'s
+    /// `isStale` both check the embedding DATA first and the id second, so a never-embedded row is
+    /// caught by the nil data regardless of how its id is interpreted. Do not tighten one of those
+    /// two checks without the other, or never-embedded rows start masquerading as legacy NL rows.
     public func saveNote(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

@@ -18,12 +18,14 @@ struct RetrievalEvalTests {
 
     // MARK: - Real-model ship gate (runs only where the dev weights exist)
 
-    static var gemma: GemmaTextEmbedder? {
+    /// Stored, not computed: a computed property would construct a SECOND embedder (and a second
+    /// Core ML load) for the `.enabled(if:)` check alone.
+    static let gemma: GemmaTextEmbedder? = {
         guard let dir = ProcessInfo.processInfo.environment["EMBER_GEMMA_MODEL_DIR"] else { return nil }
         let base = URL(fileURLWithPath: dir)
         return GemmaTextEmbedder(modelURL: base.appendingPathComponent("EmbeddingGemma.mlpackage"),
                                  tokenizerDirectory: base.appendingPathComponent("tokenizer"))
-    }
+    }()
 
     /// SHIP GATE (spec §6): EmbeddingGemma must beat NLEmbedding on fixture recall@4 without
     /// regressing keyword cases or firing on the negative case. If this fails, the default embedder
@@ -45,6 +47,8 @@ struct RetrievalEvalTests {
         let nlScore = RetrievalEval.recallAtK(cases: RetrievalEval.fixtures,
                                               embedder: NLTextEmbedder(), k: 4)
         #expect(gemmaScore.recall > nlScore.recall)
+        #expect(gemmaScore.recall >= 0.75,
+                "Gemma must clear an absolute recall floor, not merely beat a weak baseline")
         #expect(gemmaScore.negativesClean)
         let keyword = RetrievalEval.fixtures.filter { $0.name.hasPrefix("keyword") }
         #expect(RetrievalEval.recallAtK(cases: keyword, embedder: g, k: 4).recall == 1.0)
