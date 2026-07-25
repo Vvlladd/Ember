@@ -39,7 +39,7 @@ struct MemoryStoreTests {
         let (mem, store) = try makeStore()
         let c = store.createConversation(now: Date(timeIntervalSince1970: 0))
         store.appendMessage(role: .user, text: "trip to paris", to: c, now: Date(timeIntervalSince1970: 0))
-        store.appendMessage(role: .assistant, text: "paris is great", to: c, now: Date(timeIntervalSince1970: 1))
+        store.appendMessage(role: .user, text: "debugging swift code", to: c, now: Date(timeIntervalSince1970: 1))
         mem.backfill()
         #expect(c.orderedMessages.allSatisfy { $0.embedding != nil })
         #expect(mem.snapshot().count == 2)
@@ -77,14 +77,16 @@ struct MemoryStoreTests {
 
         // Adding a message without indexing it does NOT invalidate the cache:
         // snapshot() stays stale (still 1 record) and does not rebuild.
-        store.appendMessage(role: .assistant, text: "paris is great", to: c, now: Date(timeIntervalSince1970: 1))
+        // (USER role: assistant messages are excluded from retrieval entirely, so indexing one
+        // would be a no-op and could not serve as this test's invalidating write.)
+        store.appendMessage(role: .user, text: "debugging swift code", to: c, now: Date(timeIntervalSince1970: 1))
         let stillStale = mem.snapshot()
         #expect(mem.snapshotBuildCount == 1)
         #expect(stillStale.count == 1)
 
         // An invalidating write (indexing the new message) rebuilds on next snapshot()
         // and reflects the change.
-        mem.index(c.orderedMessages.first { $0.role == .assistant }!)
+        mem.index(c.orderedMessages.first { $0.text == "debugging swift code" }!)
         let fresh = mem.snapshot()
         #expect(mem.snapshotBuildCount == 2)
         #expect(fresh.count == 2)

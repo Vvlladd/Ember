@@ -34,7 +34,10 @@ public final class MemoryStore {
     /// Embed and persist a vector for `message` if it lacks one, or if its existing vector was
     /// written by a different embedder (stale space → re-embed into the active space).
     public func index(_ message: Message) {
-        guard message.role != .systemNotice else { return }
+        // USER messages only: assistant turns are conversational filler whose retrieval polluted
+        // prompts on-device (travel small-talk injected into a food question); durable facts from
+        // assistant exchanges already flow through the curated-note extraction pipeline.
+        guard message.role == .user else { return }
         let isCurrent = message.embedding != nil
             && effectiveEmbedderID(message.embedderID) == embedder.identity.id
         guard !isCurrent else { return }
@@ -144,7 +147,7 @@ public final class MemoryStore {
         let messages = (try? context.fetch(
             FetchDescriptor<Message>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []
         for message in messages where migrated < chunkSize {
-            guard message.role != .systemNotice, isStale(message.embedding, message.embedderID),
+            guard message.role == .user, isStale(message.embedding, message.embedderID),
                   let v = embedder.embed(message.text, role: .document) else { continue }
             message.embedding = Self.archive(v)
             message.embedderID = activeID
@@ -175,7 +178,9 @@ public final class MemoryStore {
         if let cachedSnapshot { return cachedSnapshot }
         let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
         var records = all.compactMap { message -> MemoryRecord? in
-            guard let data = message.embedding, message.role != .systemNotice else { return nil }
+            // role == .user also drops assistant rows EMBEDDED BY OLDER BUILDS — the filter must
+            // hold at read time, not only at indexing time, or legacy stores keep the pollution.
+            guard let data = message.embedding, message.role == .user else { return nil }
             return MemoryRecord(
                 messageID: message.id,
                 conversationID: message.conversation?.id ?? UUID(),
