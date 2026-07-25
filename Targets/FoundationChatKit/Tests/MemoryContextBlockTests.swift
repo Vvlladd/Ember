@@ -108,6 +108,38 @@ struct MemoryContextBlockTests {
         #expect(!block.contains("fourth"))
     }
 
+    /// Near-identical snippets from different conversations must not burn injection slots —
+    /// on-device the same past question was injected twice ("Where I told you I want to travel?"
+    /// from 'Paris Travel Plans' AND 'Travel Plans') while distinct facts were pushed out.
+    @Test func wrapCollapsesNearDuplicateHits() {
+        let hits = [hit("Where I told you I want to travel?", score: 0.9),
+                    hit("Where I told you I want to travel?", score: 0.8),
+                    hit("wants to travel to Ghent and Lisbon", score: 0.7)]
+        let block = MemoryContextBlock.wrap(hits, maxHits: 2, maxCharsPerHit: 240)
+        let bullets = block.components(separatedBy: "\n- ").count - 1
+        #expect(bullets == 2)
+        #expect(block.contains("Ghent"))   // the dup slot went to a distinct fact instead
+    }
+
+    @Test func wrapCollapsesContainedShorterHit() {
+        let hits = [hit("trip to paris in september with friends", score: 0.9),
+                    hit("trip to paris", score: 0.8),           // >=3-word fragment of the first
+                    hit("has a golden retriever named Rex", score: 0.7)]
+        let block = MemoryContextBlock.wrap(hits, maxHits: 3, maxCharsPerHit: 240)
+        let bullets = block.components(separatedBy: "\n- ").count - 1
+        #expect(bullets == 2)
+        #expect(block.contains("golden retriever"))
+    }
+
+    @Test func wrapKeepsShortDistinctHits() {
+        // One/two-word texts never containment-match (>=3-word rule) — distinct short facts all
+        // survive, matching saveNoteIfNovel's calibration.
+        let hits = [hit("likes teal", score: 0.9), hit("likes tea", score: 0.8)]
+        let block = MemoryContextBlock.wrap(hits, maxHits: 3, maxCharsPerHit: 240)
+        let bullets = block.components(separatedBy: "\n- ").count - 1
+        #expect(bullets == 2)
+    }
+
     @Test func wrapTruncatesEachHit() {
         let long = String(repeating: "z", count: 300)
         let block = MemoryContextBlock.wrap([hit(long, score: 0.9)], maxHits: 3, maxCharsPerHit: 50)

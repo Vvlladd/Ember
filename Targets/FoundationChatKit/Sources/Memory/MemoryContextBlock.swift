@@ -45,13 +45,28 @@ public enum MemoryContextBlock {
     public static let defaultMaxHits = 3
     public static let defaultMaxCharsPerHit = 240
 
+    /// Keeps hits in rank order, skipping any whose text is a near-duplicate of an already-kept
+    /// hit (shared `DedupText` rule), until `maxHits` are selected. Skipped duplicates do NOT
+    /// consume slots — the freed slot goes to the next distinct hit, so the same past question
+    /// stored in two conversations can't fill the block twice while a real fact is pushed out.
+    static func selectDistinct(_ hits: [MemoryHit], maxHits: Int) -> [MemoryHit] {
+        var kept: [MemoryHit] = []
+        for hit in hits where kept.count < max(0, maxHits) {
+            if !kept.contains(where: { DedupText.isNearDuplicate($0.record.text, hit.record.text) }) {
+                kept.append(hit)
+            }
+        }
+        return kept
+    }
+
     /// The full marker-delimited block: open marker, header, one `- ` bullet per hit, close marker —
-    /// each marker on its own line. Caps to the first `maxHits` hits and clamps each formatted bullet
-    /// to `maxCharsPerHit`. Returns an empty string for no hits (`augment` guards first).
+    /// each marker on its own line. Collapses near-duplicate hits, caps at `maxHits`, and clamps
+    /// each formatted bullet to `maxCharsPerHit`. Returns an empty string for no hits
+    /// (`augment` guards first).
     public static func wrap(_ hits: [MemoryHit],
                             maxHits: Int = defaultMaxHits,
                             maxCharsPerHit: Int = defaultMaxCharsPerHit) -> String {
-        let limited = Array(hits.prefix(max(0, maxHits)))
+        let limited = selectDistinct(hits, maxHits: maxHits)
         guard !limited.isEmpty else { return "" }
         let bullets = limited.map { hit -> String in
             let formatted = formatHit(hit)
@@ -65,9 +80,11 @@ public enum MemoryContextBlock {
     public static func augment(prompt: String, with hits: [MemoryHit],
                                maxHits: Int = defaultMaxHits,
                                maxCharsPerHit: Int = defaultMaxCharsPerHit) -> String {
-        let limited = Array(hits.prefix(max(0, maxHits)))
-        guard !limited.isEmpty else { return prompt }
-        return "\(wrap(limited, maxHits: maxHits, maxCharsPerHit: maxCharsPerHit))\n\(prompt)"
+        // Pass the FULL hit list through: wrap's duplicate-collapse must see the hits a prefix
+        // would have cut, so a freed slot can go to the next distinct hit.
+        let block = wrap(hits, maxHits: maxHits, maxCharsPerHit: maxCharsPerHit)
+        guard !block.isEmpty else { return prompt }
+        return "\(block)\n\(prompt)"
     }
 
     /// Inverse of `augment`. If `text` starts with the open marker, returns the inner block content

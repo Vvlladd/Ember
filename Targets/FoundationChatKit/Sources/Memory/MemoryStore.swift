@@ -91,18 +91,8 @@ public final class MemoryStore {
 
         let notes = snapshot().filter { $0.source == .note }
 
-        // 1) Normalized-text equality OR substring containment: lowercase + collapse whitespace,
-        // then reject if either string contains the other. Containment only counts when the SHORTER
-        // (contained) side is ≥3 words, so a one-word note ("paris") can't swallow every richer fact
-        // mentioning it — only genuine fragments ("trip to paris" ⊂ "trip to paris in september").
-        let normalizedCandidate = Self.normalizedForDedup(trimmed)
-        if let dup = notes.first(where: {
-            let n = Self.normalizedForDedup($0.text)
-            if n == normalizedCandidate { return true }
-            let shorter = n.count <= normalizedCandidate.count ? n : normalizedCandidate
-            let longer = n.count <= normalizedCandidate.count ? normalizedCandidate : n
-            return Self.wordCount(shorter) >= 3 && longer.contains(shorter)
-        }) {
+        // 1) Text-level near-duplicate (shared rule with injection-time collapse — see DedupText).
+        if let dup = notes.first(where: { DedupText.isNearDuplicate($0.text, trimmed) }) {
             EmberLog.memory.notice("saveNoteIfNovel: REJECT (text contained/equal vs \"\(dup.text, privacy: .public)\") \"\(trimmed, privacy: .public)\"")
             return false
         }
@@ -120,15 +110,6 @@ public final class MemoryStore {
 
         saveNote(trimmed)
         return true
-    }
-
-    /// Normalize for de-dup comparison: lowercase, collapse runs of whitespace to single spaces, trim.
-    private static func normalizedForDedup(_ s: String) -> String {
-        s.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-    }
-
-    private static func wordCount(_ s: String) -> Int {
-        s.split(whereSeparator: { $0.isWhitespace }).count
     }
 
     /// Chunked migration + legacy embedding pass. Re-embeds rows that are missing a vector OR whose
