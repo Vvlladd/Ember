@@ -34,7 +34,10 @@ public final class MemoryStore {
     /// Embed and persist a vector for `message` if it lacks one, or if its existing vector was
     /// written by a different embedder (stale space → re-embed into the active space).
     public func index(_ message: Message) {
-        guard message.role != .systemNotice else { return }
+        // USER messages only: assistant turns are conversational filler whose retrieval polluted
+        // prompts on-device (travel small-talk injected into a food question); durable facts from
+        // assistant exchanges already flow through the curated-note extraction pipeline.
+        guard message.role == .user else { return }
         let isCurrent = message.embedding != nil
             && effectiveEmbedderID(message.embedderID) == embedder.identity.id
         guard !isCurrent else { return }
@@ -88,18 +91,8 @@ public final class MemoryStore {
 
         let notes = snapshot().filter { $0.source == .note }
 
-        // 1) Normalized-text equality OR substring containment: lowercase + collapse whitespace,
-        // then reject if either string contains the other. Containment only counts when the SHORTER
-        // (contained) side is ≥3 words, so a one-word note ("paris") can't swallow every richer fact
-        // mentioning it — only genuine fragments ("trip to paris" ⊂ "trip to paris in september").
-        let normalizedCandidate = Self.normalizedForDedup(trimmed)
-        if let dup = notes.first(where: {
-            let n = Self.normalizedForDedup($0.text)
-            if n == normalizedCandidate { return true }
-            let shorter = n.count <= normalizedCandidate.count ? n : normalizedCandidate
-            let longer = n.count <= normalizedCandidate.count ? normalizedCandidate : n
-            return Self.wordCount(shorter) >= 3 && longer.contains(shorter)
-        }) {
+        // 1) Text-level near-duplicate (shared rule with injection-time collapse — see DedupText).
+        if let dup = notes.first(where: { DedupText.isNearDuplicate($0.text, trimmed) }) {
             EmberLog.memory.notice("saveNoteIfNovel: REJECT (text contained/equal vs \"\(dup.text, privacy: .public)\") \"\(trimmed, privacy: .public)\"")
             return false
         }
@@ -119,15 +112,6 @@ public final class MemoryStore {
         return true
     }
 
-    /// Normalize for de-dup comparison: lowercase, collapse runs of whitespace to single spaces, trim.
-    private static func normalizedForDedup(_ s: String) -> String {
-        s.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-    }
-
-    private static func wordCount(_ s: String) -> Int {
-        s.split(whereSeparator: { $0.isWhitespace }).count
-    }
-
     /// Chunked migration + legacy embedding pass. Re-embeds rows that are missing a vector OR whose
     /// vector belongs to a different embedder's space — up to `chunkSize` rows per call (oldest
     /// first, messages then notes), so a large store converges over a few launches without ever
@@ -144,7 +128,7 @@ public final class MemoryStore {
         let messages = (try? context.fetch(
             FetchDescriptor<Message>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []
         for message in messages where migrated < chunkSize {
-            guard message.role != .systemNotice, isStale(message.embedding, message.embedderID),
+            guard message.role == .user, isStale(message.embedding, message.embedderID),
                   let v = embedder.embed(message.text, role: .document) else { continue }
             message.embedding = Self.archive(v)
             message.embedderID = activeID
@@ -175,7 +159,9 @@ public final class MemoryStore {
         if let cachedSnapshot { return cachedSnapshot }
         let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
         var records = all.compactMap { message -> MemoryRecord? in
-            guard let data = message.embedding, message.role != .systemNotice else { return nil }
+            // role == .user also drops assistant rows EMBEDDED BY OLDER BUILDS — the filter must
+            // hold at read time, not only at indexing time, or legacy stores keep the pollution.
+            guard let data = message.embedding, message.role == .user else { return nil }
             return MemoryRecord(
                 messageID: message.id,
                 conversationID: message.conversation?.id ?? UUID(),

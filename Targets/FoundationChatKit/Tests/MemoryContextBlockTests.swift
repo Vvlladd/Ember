@@ -49,7 +49,7 @@ struct MemoryContextBlockTests {
                                conversationTitle: "Trip", role: .user,
                                text: "trip to paris", vector: e.embed("trip to paris")!)
         let hit = MemoryHit(record: rec, score: 1)
-        #expect(MemoryContextBlock.formatHit(hit) == "From 'Trip' — You: trip to paris")
+        #expect(MemoryContextBlock.formatHit(hit) == "From 'Trip' — the user said: trip to paris")
     }
 
     @Test func formatHitAssistantRole() {
@@ -58,7 +58,15 @@ struct MemoryContextBlockTests {
                                conversationTitle: "Code", role: .assistant,
                                text: "debugging swift code", vector: e.embed("debugging swift code")!)
         let hit = MemoryHit(record: rec, score: 1)
-        #expect(MemoryContextBlock.formatHit(hit) == "From 'Code' — Assistant: debugging swift code")
+        #expect(MemoryContextBlock.formatHit(hit) == "From 'Code' — you (the assistant) said: debugging swift code")
+    }
+
+    /// The header must frame snippets as facts ABOUT the user and pin the answering voice —
+    /// on-device the 3B model otherwise mirrors "You: I like apples" back in first person.
+    @Test func wrapHeaderFramesUserFactsAndVoice() {
+        let block = MemoryContextBlock.wrap([hit("likes apples", score: 0.9)])
+        #expect(block.contains("Background about the user from earlier chats"))
+        #expect(block.contains("never speak as them"))
     }
 
     @Test func truncateLeavesShortTextUntouched() {
@@ -98,6 +106,38 @@ struct MemoryContextBlockTests {
         #expect(block.contains("second"))
         #expect(!block.contains("third"))
         #expect(!block.contains("fourth"))
+    }
+
+    /// Near-identical snippets from different conversations must not burn injection slots —
+    /// on-device the same past question was injected twice ("Where I told you I want to travel?"
+    /// from 'Paris Travel Plans' AND 'Travel Plans') while distinct facts were pushed out.
+    @Test func wrapCollapsesNearDuplicateHits() {
+        let hits = [hit("Where I told you I want to travel?", score: 0.9),
+                    hit("Where I told you I want to travel?", score: 0.8),
+                    hit("wants to travel to Ghent and Lisbon", score: 0.7)]
+        let block = MemoryContextBlock.wrap(hits, maxHits: 2, maxCharsPerHit: 240)
+        let bullets = block.components(separatedBy: "\n- ").count - 1
+        #expect(bullets == 2)
+        #expect(block.contains("Ghent"))   // the dup slot went to a distinct fact instead
+    }
+
+    @Test func wrapCollapsesContainedShorterHit() {
+        let hits = [hit("trip to paris in september with friends", score: 0.9),
+                    hit("trip to paris", score: 0.8),           // >=3-word fragment of the first
+                    hit("has a golden retriever named Rex", score: 0.7)]
+        let block = MemoryContextBlock.wrap(hits, maxHits: 3, maxCharsPerHit: 240)
+        let bullets = block.components(separatedBy: "\n- ").count - 1
+        #expect(bullets == 2)
+        #expect(block.contains("golden retriever"))
+    }
+
+    @Test func wrapKeepsShortDistinctHits() {
+        // One/two-word texts never containment-match (>=3-word rule) — distinct short facts all
+        // survive, matching saveNoteIfNovel's calibration.
+        let hits = [hit("likes teal", score: 0.9), hit("likes tea", score: 0.8)]
+        let block = MemoryContextBlock.wrap(hits, maxHits: 3, maxCharsPerHit: 240)
+        let bullets = block.components(separatedBy: "\n- ").count - 1
+        #expect(bullets == 2)
     }
 
     @Test func wrapTruncatesEachHit() {
