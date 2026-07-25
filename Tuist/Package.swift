@@ -26,7 +26,8 @@ let packageSettings = PackageSettings(
 let package = Package(
     name: "EmberDependencies",
     dependencies: [
-        // Tokenizer ONLY (Gemma SentencePiece). Pin exact; verify latest tag when executing.
-        .package(url: "https://github.com/huggingface/swift-transformers", from: "0.1.15")
+        // Tokenizer ONLY (Gemma SentencePiece). Pinned exact — an embedding vector space is tied to
+        // its tokenization, so a silent tokenizer bump could shift vectors under stored embeddings.
+        .package(url: "https://github.com/huggingface/swift-transformers", exact: "0.1.24")
     ]
 )
