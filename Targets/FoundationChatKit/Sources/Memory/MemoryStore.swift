@@ -121,10 +121,45 @@ public final class MemoryStore {
         s.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    /// One-time embedding of all persisted messages lacking a vector.
-    public func backfill() {
-        let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
-        for message in all where message.embedding == nil { index(message) }
+    /// Chunked migration + legacy embedding pass. Re-embeds rows that are missing a vector OR whose
+    /// vector belongs to a different embedder's space — up to `chunkSize` rows per call (oldest
+    /// first, messages then notes), so a large store converges over a few launches without ever
+    /// blocking startup. Idempotent: migrated rows are tagged and skipped on the next pass.
+    @discardableResult
+    public func backfill(chunkSize: Int = 50) -> Int {
+        let activeID = embedder.identity.id
+        var migrated = 0
+
+        func isStale(_ embedding: Data?, _ rowID: String?) -> Bool {
+            embedding == nil || effectiveEmbedderID(rowID) != activeID
+        }
+
+        let messages = (try? context.fetch(
+            FetchDescriptor<Message>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []
+        for message in messages where migrated < chunkSize {
+            guard message.role != .systemNotice, isStale(message.embedding, message.embedderID),
+                  let v = embedder.embed(message.text, role: .document) else { continue }
+            message.embedding = Self.archive(v)
+            message.embedderID = activeID
+            migrated += 1
+        }
+
+        let notes = (try? context.fetch(
+            FetchDescriptor<MemoryNote>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []
+        for note in notes where migrated < chunkSize {
+            guard isStale(note.embedding, note.embedderID),
+                  let v = embedder.embed(note.text, role: .document) else { continue }
+            note.embedding = Self.archive(v)
+            note.embedderID = activeID
+            migrated += 1
+        }
+
+        if migrated > 0 {
+            try? context.save()
+            cachedSnapshot = nil
+            EmberLog.memory.info("backfill: migrated \(migrated, privacy: .public) rows to \(activeID, privacy: .public)")
+        }
+        return migrated
     }
 
     /// Immutable snapshot of every embedded message for off-actor cosine search.
