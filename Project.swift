@@ -13,7 +13,7 @@ let project = Project(
             bundleId: "dev.iosunpi.ember.kit",
             deploymentTargets: deployment,
             sources: ["Targets/FoundationChatKit/Sources/**"],
-            dependencies: []
+            dependencies: [.external(name: "Transformers")]
         ),
         .target(
             name: "FoundationChatKitTests",
