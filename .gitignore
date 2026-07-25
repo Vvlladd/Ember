@@ -6,3 +6,4 @@ Derived/
 .build/
 DerivedData/
 *.xcuserstate
+Targets/Ember/Resources/Models/
