@@ -1076,3 +1076,15 @@ git commit -m "docs: EmbeddingGemma embedder — setup, fallback, license flow-d
 - **Spec coverage:** seam v2 → Task 1; GemmaTextEmbedder → Task 4; packaging/scripts → Tasks 0+5; versioning+migration → Tasks 2+3; fallback+wiring → Task 5; eval gate → Task 6; licensing → Task 7. Spec's "risks/verify-then-use" items are embedded as inline verify steps (prefixes: Tasks 0/4; conversion parity: Task 0; latency: Task 5 smoke; app size: Task 5 Step 1 observation — flag in PR description).
 - **Type consistency:** `EmbedderIdentity(id:dimension:)`, `embed(_:role:)`, `backfill(chunkSize:)`, `GemmaEmbeddingFormat.prompt(_:role:)`, `GemmaTextEmbedder(modelURL:tokenizerDirectory:)` used identically across tasks; `OtherSpaceEmbedder` defined in Task 2's file, reused by Task 3's tests (same test target).
 - **Known intentional deviations:** `MockEmbedder` keeps a role-less sugar overload (test-only) so ~30 existing call sites don't churn; production code has no such overload.
+
+---
+
+## Post-merge follow-ups (from the final whole-branch review — merged with NLEmbedding as default)
+
+Must be resolved BEFORE flipping the default embedder to Gemma, in this order on a weights-equipped machine:
+1. Verify bundling end-to-end (F3's Core ML compile step never ran against a real .mlpackage here) → run the Task 5 smoke ('GemmaTextEmbedder ready (dim=256)' log + embedderID tagging).
+2. **#2 Async/off-actor embedding + fetchLimit on backfill** — all Core ML inference currently runs on the main actor via @MainActor MemoryStore; 50 sequential 300M-param inferences per launch would hang the UI. Also `backfill` fetches every row unbounded. NOTE 2026-07-25: an on-device EXC_BREAKPOINT inside NLEmbedding.vector(for:) was observed (query "Lisbon", background Task) — suspected concurrent NLEmbedding access (deferred backfill Task vs background tool-call embed) — unconfirmed (no `bt all` captured); the serialization fix here likely resolves it too.
+3. **#4 Corrupt-model fallback** — a model that loads-then-fails leaves Gemma permanently nil with no next-launch NLEmbedding recovery.
+4. **#7 SEQ_LEN decision** — index() embeds full message text, silently truncated at 256 tokens; measure 256 vs 512 via the eval harness before deciding.
+5. Run the ship gate: `TEST_RUNNER_EMBER_GEMMA_MODEL_DIR="$PWD/Targets/Ember/Resources/Models" xcodebuild … test`. Gate = recall@4 strictly > NLEmbedding AND ≥ 0.75 floor AND negatives clean AND keyword recall 1.0. Expect the 0.75 floor to be the first thing that fires if quality disappoints.
+6. padTokenID=0 verification against the fetched tokenizer_config (inert while attention-masked mean pooling holds).
