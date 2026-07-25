@@ -19,11 +19,28 @@ public final class MemoryStore {
         self.embedder = embedder
     }
 
-    /// Embed and persist a vector for `message` if it lacks one (skips system notices / empty text).
+    /// The row's effective vector space: rows written before versioning are NLEmbedding English.
+    private func effectiveEmbedderID(_ rowID: String?) -> String {
+        rowID ?? EmbedderIdentity.legacyNLEnglish.id
+    }
+
+    /// A stored vector participates in cosine only within the ACTIVE embedder's space; a stale
+    /// vector behaves exactly like "not embedded" (empty → cosine 0, lexical still applies).
+    private func liveVector(_ data: Data?, rowEmbedderID: String?) -> [Float] {
+        guard let data, effectiveEmbedderID(rowEmbedderID) == embedder.identity.id else { return [] }
+        return Self.unarchive(data)
+    }
+
+    /// Embed and persist a vector for `message` if it lacks one, or if its existing vector was
+    /// written by a different embedder (stale space → re-embed into the active space).
     public func index(_ message: Message) {
-        guard message.embedding == nil, message.role != .systemNotice else { return }
+        guard message.role != .systemNotice else { return }
+        let isCurrent = message.embedding != nil
+            && effectiveEmbedderID(message.embedderID) == embedder.identity.id
+        guard !isCurrent else { return }
         guard let vector = embedder.embed(message.text, role: .document) else { return }
         message.embedding = Self.archive(vector)
+        message.embedderID = embedder.identity.id
         try? context.save()
         cachedSnapshot = nil  // a vector was written — invalidate the cache
     }
@@ -40,7 +57,8 @@ public final class MemoryStore {
         guard !trimmed.isEmpty else { return }
         let vector = embedder.embed(trimmed, role: .document)   // may be nil if embedding is unavailable
         let note = MemoryNote(text: trimmed, createdAt: Date(),
-                              embedding: vector.map { Self.archive($0) })
+                              embedding: vector.map { Self.archive($0) },
+                              embedderID: vector != nil ? embedder.identity.id : nil)
         context.insert(note)
         try? context.save()
         cachedSnapshot = nil  // a note was written — invalidate the cache
@@ -122,7 +140,7 @@ public final class MemoryStore {
                 conversationTitle: message.conversation?.title ?? "Untitled",
                 role: message.role,
                 text: message.text,
-                vector: Self.unarchive(data)
+                vector: liveVector(data, rowEmbedderID: message.embedderID)
             )
         }
         let notes = (try? context.fetch(FetchDescriptor<MemoryNote>())) ?? []
@@ -133,7 +151,7 @@ public final class MemoryStore {
                 conversationTitle: "Saved memory",
                 role: .user,
                 text: note.text,
-                vector: note.embedding.map { Self.unarchive($0) } ?? [],  // unembedded note: empty vector, never matches search
+                vector: liveVector(note.embedding, rowEmbedderID: note.embedderID),  // unembedded/stale note: empty vector, never matches search
                 source: .note
             )
         }
