@@ -7,14 +7,19 @@ import os
 /// ready `embed` returns nil — callers already tolerate nil (rows stay unembedded) and the chunked
 /// `backfill` re-embeds them on a later pass, so a slow first load degrades gracefully.
 ///
+/// `ready()` awaits that load, for the callers (migration backfill) that only get one shot.
+///
 /// `@unchecked Sendable`: `resources` is written once by the loader task and only read afterwards,
-/// always under `lock`.
+/// always under `lock`; `loadTask` is written once at the end of `init` and only read afterwards.
 public final class GemmaTextEmbedder: TextEmbedder, @unchecked Sendable {
     public let identity = EmbedderIdentity(id: "embeddinggemma-300m-256", dimension: 256)
 
     private struct Resources { let model: MLModel; let tokenizer: any Tokenizer }
     private let lock = NSLock()
     private var resources: Resources?
+    /// The resource load. Implicitly unwrapped because the loader closure captures `self`, which is
+    /// only legal once every other stored property has a value — so this is assigned last.
+    private var loadTask: Task<Void, Never>!
     private static let sequenceLength = 256   // must match scripts/convert_embeddinggemma.py SEQ_LEN
     /// Padding token id for positions beyond the encoded length. UNVERIFIED: the converted
     /// tokenizer's `tokenizer_config.json` (`pad_token_id`) is not on this machine yet — this must
@@ -30,7 +35,7 @@ public final class GemmaTextEmbedder: TextEmbedder, @unchecked Sendable {
             EmberLog.embed.error("GemmaTextEmbedder: model or tokenizer missing — not constructing")
             return nil
         }
-        Task.detached(priority: .utility) { [weak self] in
+        loadTask = Task.detached(priority: .utility) { [weak self] in
             do {
                 let compiled = modelURL.pathExtension == "mlmodelc"
                     ? modelURL
@@ -46,6 +51,10 @@ public final class GemmaTextEmbedder: TextEmbedder, @unchecked Sendable {
     }
 
     private func install(_ r: Resources) { lock.lock(); resources = r; lock.unlock() }
+
+    /// Suspends until the load finishes (successfully or not). After this returns, `embed` is
+    /// either working or permanently nil — it will never flip later in this process.
+    public func ready() async { await loadTask.value }
 
     public func embed(_ text: String, role: EmbeddingRole) -> [Float]? {
         lock.lock(); let r = resources; lock.unlock()

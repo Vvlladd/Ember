@@ -52,6 +52,19 @@ struct BackfillMigrationTests {
         #expect(note.embedderID == "mock-bag-of-words")
     }
 
+    /// An embedder that loads asynchronously embeds NOTHING until it is ready, so a backfill run
+    /// before readiness silently migrates zero rows. Callers must await `ready()` first.
+    @Test func backfillBeforeEmbedderIsReadyMigratesNothing() async throws {
+        let context = try makeContext()
+        try seedStale(context, count: 3)
+        let embedder = DeferredReadyEmbedder()
+        let store = MemoryStore(context: context, embedder: embedder)
+        #expect(store.backfill() == 0)
+        embedder.finishLoading()
+        await embedder.ready()
+        #expect(store.backfill() == 3)
+    }
+
     @Test func backfillStillEmbedsNeverEmbeddedRows() throws {
         let context = try makeContext()
         let m = Message(role: .user, text: "trip to paris", createdAt: Date())

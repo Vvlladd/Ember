@@ -45,7 +45,14 @@ public final class ChatCoordinator {
         self.now = now
         self.availability = provider.availability
         self.memory = memory
-        memory?.backfill()
+        // Migration backfill gets ONE shot per launch, so it must not run before the embedder can
+        // produce vectors: an asynchronously-loading embedder (EmbeddingGemma) returns nil from
+        // every `embed` until its Core ML load lands, which would migrate zero rows and leave them
+        // stale forever. Synchronous embedders return from `ready()` immediately, so this costs
+        // them only a main-actor hop. The Task inherits @MainActor, so `backfill()` is legal here.
+        if let memory {
+            Task { await memory.embedder.ready(); memory.backfill() }
+        }
         reload()
     }
 

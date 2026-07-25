@@ -138,6 +138,32 @@ struct ChatCoordinatorTests {
         return (coord, provider, memory)
     }
 
+    /// Regression: the migration backfill must wait for the embedder to finish loading. An
+    /// asynchronously-loading embedder (EmbeddingGemma) embeds nothing until it is ready, so a
+    /// backfill fired synchronously from `init` migrates zero rows — and never runs again,
+    /// leaving every stored vector permanently outside the active space.
+    @Test func initBackfillsOnceTheEmbedderIsReady() async throws {
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: Conversation.self, Message.self, MemoryNote.self,
+                                           configurations: config)
+        let context = ModelContext(container)
+        let message = Message(role: .user, text: "trip to paris", createdAt: Date())
+        context.insert(message)
+        try context.save()
+
+        let embedder = DeferredReadyEmbedder()
+        let memory = MemoryStore(context: context, embedder: embedder)
+        let coord = ChatCoordinator(provider: MockModelProvider(), store: ConversationStore(context: context),
+                                    memory: memory, now: { Date(timeIntervalSince1970: 0) })
+        #expect(coord.conversations.isEmpty)   // nothing seeded; keeps `coord` alive past init
+        #expect(message.embedding == nil)      // not migrated yet — the embedder is still loading
+
+        embedder.finishLoading()
+        for _ in 0..<100 where message.embedderID != embedder.identity.id { await Task.yield() }
+        #expect(message.embedderID == embedder.identity.id)
+        #expect(message.embedding != nil)
+    }
+
     @Test func registersMemorySearchTool() throws {
         let (coord, provider, _) = try makeWithMemory()
         coord.newConversation()

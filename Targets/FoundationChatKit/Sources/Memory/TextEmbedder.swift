@@ -20,6 +20,15 @@ public struct EmbedderIdentity: Sendable, Equatable {
 public protocol TextEmbedder: Sendable {
     var identity: EmbedderIdentity { get }
     func embed(_ text: String, role: EmbeddingRole) -> [Float]?
+    /// Suspends until the embedder can actually produce vectors. Callers that only get ONE shot at
+    /// embedding a batch of rows (the migration backfill) must await this first: an embedder that
+    /// loads asynchronously returns nil from every `embed` until its load lands.
+    func ready() async
+}
+
+public extension TextEmbedder {
+    /// Embedders whose resources are resolved in `init` are ready the moment they exist.
+    func ready() async { }
 }
 
 /// Real on-device embedder over `NLEmbedding` sentence vectors (no asset download required).
