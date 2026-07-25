@@ -34,6 +34,11 @@ Ember runs entirely on-device (no servers, no network, no API keys). It feels li
 - **Advanced budgeting** — model-summarized context compaction (with a deterministic keep-first-last fallback) and reserve-for-reply: Ember compacts *proactively* before a turn would overflow, so replies always have headroom.
 - **Resilient generation** — transient on-device runtime failures (e.g. an internal `com.apple.tokengeneration` error, distinct from context overflow) are detected and **retried once** before surfacing a friendly, recoverable banner instead of a raw `NSError`. An opt-in `os.Logger` diagnostic layer (`EmberLog`) traces every memory/RAG boundary for on-device debugging.
 
+**Embeddings**
+- **EmbeddingGemma-300m on Core ML** — a 256-dim Matryoshka-truncated on-device embedding model with role-aware query/document task prefixes, implemented behind the same `TextEmbedder` protocol seam as the `NLEmbedding` fallback. Weights are dev-fetched once per machine via `scripts/fetch_embeddinggemma.sh` (requires `pip install sentence-transformers coremltools torch numpy`, `huggingface-cli login`, and accepting the Gemma license) and land in a gitignored `Targets/Ember/Resources/Models/` directory — **never committed**. Contributors and CI without the weights build and run unmodified on the `NLEmbedding` fallback (`EmberApp.makeEmbedder()` picks whichever is bundled).
+- Vectors are versioned by `embedderID` on `Message`/`MemoryNote` rows (`nil` = legacy NLEmbedding); different embedding spaces are never cross-compared, and a chunked background migration (`MemoryStore.backfill(chunkSize:)`) re-embeds stale rows on launch.
+- **License:** the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) require any distributed build that bundles the weights to flow down Google's [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) in the app's own terms of use.
+
 ---
 
 ## 🧱 Architecture
@@ -118,7 +123,7 @@ xcodebuild -workspace Ember.xcworkspace -scheme Ember \
 
 ## ✅ Testing
 
-All logic is TDD-covered in the framework (165 tests across 35 suites):
+All logic is TDD-covered in the framework (243 tests):
 
 ```bash
 xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
