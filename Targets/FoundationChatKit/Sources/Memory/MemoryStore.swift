@@ -22,7 +22,7 @@ public final class MemoryStore {
     /// Embed and persist a vector for `message` if it lacks one (skips system notices / empty text).
     public func index(_ message: Message) {
         guard message.embedding == nil, message.role != .systemNotice else { return }
-        guard let vector = embedder.embed(message.text) else { return }
+        guard let vector = embedder.embed(message.text, role: .document) else { return }
         message.embedding = Self.archive(vector)
         try? context.save()
         cachedSnapshot = nil  // a vector was written — invalidate the cache
@@ -38,7 +38,7 @@ public final class MemoryStore {
     public func saveNote(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let vector = embedder.embed(trimmed)   // may be nil if embedding is unavailable
+        let vector = embedder.embed(trimmed, role: .document)   // may be nil if embedding is unavailable
         let note = MemoryNote(text: trimmed, createdAt: Date(),
                               embedding: vector.map { Self.archive($0) })
         context.insert(note)
@@ -80,7 +80,7 @@ public final class MemoryStore {
         }
 
         // 2) Cosine near-duplicate: only meaningful when both sides actually embed.
-        if let candidateVector = embedder.embed(trimmed) {
+        if let candidateVector = embedder.embed(trimmed, role: .document) {
             for note in notes where !note.vector.isEmpty {
                 let sim = Vector.cosineSimilarity(candidateVector, note.vector)
                 if sim >= Self.noteDuplicateCosineThreshold {

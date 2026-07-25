@@ -2,9 +2,24 @@ import Foundation
 import NaturalLanguage
 import os
 
+/// Which side of retrieval a text is embedded for. EmbeddingGemma is trained with different task
+/// prefixes for queries vs stored documents; NLEmbedding ignores the distinction.
+public enum EmbeddingRole: Sendable { case query, document }
+
+/// Stable identity of an embedder's vector space. Vectors from different identities are never
+/// cosine-compared (see MemoryStore) — a swap changes the id and triggers re-embedding.
+public struct EmbedderIdentity: Sendable, Equatable {
+    public let id: String
+    public let dimension: Int
+    public init(id: String, dimension: Int) { self.id = id; self.dimension = dimension }
+    /// Vectors persisted before versioning existed (embedderID == nil) are NLEmbedding English.
+    public static let legacyNLEnglish = EmbedderIdentity(id: "nl-sentence-en", dimension: 512)
+}
+
 /// Produces a dense vector for a piece of text. Mock-able so memory logic is testable off-device.
 public protocol TextEmbedder: Sendable {
-    func embed(_ text: String) -> [Float]?
+    var identity: EmbedderIdentity { get }
+    func embed(_ text: String, role: EmbeddingRole) -> [Float]?
 }
 
 /// Real on-device embedder over `NLEmbedding` sentence vectors (no asset download required).
@@ -28,7 +43,13 @@ public final class NLTextEmbedder: TextEmbedder, @unchecked Sendable {
         }
     }
 
-    public func embed(_ text: String) -> [Float]? {
+    public var identity: EmbedderIdentity {
+        language == .english
+            ? .legacyNLEnglish
+            : EmbedderIdentity(id: "nl-sentence-\(language.rawValue)", dimension: embedding?.dimension ?? 0)
+    }
+
+    public func embed(_ text: String, role: EmbeddingRole) -> [Float]? {
         guard let embedding else {
             EmberLog.embed.error("embed() called but no embedding model — returning nil")
             return nil

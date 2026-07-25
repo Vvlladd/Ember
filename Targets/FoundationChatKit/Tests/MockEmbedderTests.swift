@@ -18,16 +18,16 @@ struct MockEmbedderTests {
 struct NLTextEmbedderTests {
     @Test func emptyAndWhitespaceAlwaysReturnNil() {
         let e = NLTextEmbedder()
-        #expect(e.embed("") == nil)
-        #expect(e.embed("   ") == nil)
-        #expect(e.embed("\n\t ") == nil)
+        #expect(e.embed("", role: .document) == nil)
+        #expect(e.embed("   ", role: .document) == nil)
+        #expect(e.embed("\n\t ", role: .document) == nil)
     }
 
     @Test func nonEmptyReturnsVectorOrNilGracefully() {
         let e = NLTextEmbedder()
         // If NLEmbedding is available on this host we get a non-empty vector; otherwise nil.
         // Either is acceptable — we only require it not to crash and to be self-consistent.
-        if let vector = e.embed("a trip to paris") {
+        if let vector = e.embed("a trip to paris", role: .document) {
             #expect(!vector.isEmpty)
         }
     }

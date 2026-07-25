@@ -211,7 +211,7 @@ public final class ChatCoordinator {
             retrieval = ConversationEngine.MemoryRetrieval { query in
                 // Hybrid path: an unembeddable query must still match lexically, so default the
                 // vector to [] (cosine 0) rather than early-returning. Plan 10 WS3.
-                let qv = embedder.embed(query) ?? []
+                let qv = embedder.embed(query, role: .query) ?? []
                 // Diagnostics: score the WHOLE snapshot once (no threshold/topK) so we can see how
                 // close the best candidates came to the cutoff even when nothing passes.
                 let scored = MemoryStore.search(snapshot, query: query, queryVector: qv,
