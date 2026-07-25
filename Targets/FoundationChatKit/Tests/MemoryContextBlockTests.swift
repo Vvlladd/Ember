@@ -49,7 +49,7 @@ struct MemoryContextBlockTests {
                                conversationTitle: "Trip", role: .user,
                                text: "trip to paris", vector: e.embed("trip to paris")!)
         let hit = MemoryHit(record: rec, score: 1)
-        #expect(MemoryContextBlock.formatHit(hit) == "From 'Trip' — You: trip to paris")
+        #expect(MemoryContextBlock.formatHit(hit) == "From 'Trip' — the user said: trip to paris")
     }
 
     @Test func formatHitAssistantRole() {
@@ -58,7 +58,15 @@ struct MemoryContextBlockTests {
                                conversationTitle: "Code", role: .assistant,
                                text: "debugging swift code", vector: e.embed("debugging swift code")!)
         let hit = MemoryHit(record: rec, score: 1)
-        #expect(MemoryContextBlock.formatHit(hit) == "From 'Code' — Assistant: debugging swift code")
+        #expect(MemoryContextBlock.formatHit(hit) == "From 'Code' — you (the assistant) said: debugging swift code")
+    }
+
+    /// The header must frame snippets as facts ABOUT the user and pin the answering voice —
+    /// on-device the 3B model otherwise mirrors "You: I like apples" back in first person.
+    @Test func wrapHeaderFramesUserFactsAndVoice() {
+        let block = MemoryContextBlock.wrap([hit("likes apples", score: 0.9)])
+        #expect(block.contains("Background about the user from earlier chats"))
+        #expect(block.contains("never speak as them"))
     }
 
     @Test func truncateLeavesShortTextUntouched() {

@@ -9,7 +9,10 @@ import Foundation
 public enum MemoryContextBlock {
     private static let openMarker = "\u{27E6}memory\u{27E7}"      // ⟦memory⟧
     private static let closeMarker = "\u{27E6}/memory\u{27E7}"   // ⟦/memory⟧
-    private static let header = "Background from earlier chats (use only if directly relevant to the question; otherwise ignore):"
+    /// Frames the snippets as facts ABOUT the user and pins the answering voice. Both clauses are
+    /// load-bearing on the 3B on-device model: without the voice line it mirrors first-person
+    /// snippets back verbatim ("I like apples") instead of answering about the user.
+    private static let header = "Background about the user from earlier chats (use only if directly relevant; otherwise ignore). Answer in your own voice about the user — never speak as them:"
 
     /// Clamp a single injected hit's text to `maxChars`, appending a single ellipsis so the
     /// model sees the truncation. Trailing whitespace is trimmed before the ellipsis. Returns
@@ -29,7 +32,9 @@ public enum MemoryContextBlock {
         case .note:
             return "Saved memory: \(hit.record.text)"
         case .conversation:
-            let who = hit.record.role == .user ? "You" : "Assistant"
+            // Third-person attribution: "You:" made the model adopt the snippet's first-person
+            // voice as its own; "the user said" keeps speaker and answerer distinct.
+            let who = hit.record.role == .user ? "the user said" : "you (the assistant) said"
             return "From '\(hit.record.conversationTitle)' — \(who): \(hit.record.text)"
         }
     }
