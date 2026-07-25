@@ -45,7 +45,14 @@ public final class ChatCoordinator {
         self.now = now
         self.availability = provider.availability
         self.memory = memory
-        memory?.backfill()
+        // Migration backfill gets ONE shot per launch, so it must not run before the embedder can
+        // produce vectors: an asynchronously-loading embedder (EmbeddingGemma) returns nil from
+        // every `embed` until its Core ML load lands, which would migrate zero rows and leave them
+        // stale forever. Synchronous embedders return from `ready()` immediately, so this costs
+        // them only a main-actor hop. The Task inherits @MainActor, so `backfill()` is legal here.
+        if let memory {
+            Task { await memory.embedder.ready(); memory.backfill() }
+        }
         reload()
     }
 
@@ -211,7 +218,7 @@ public final class ChatCoordinator {
             retrieval = ConversationEngine.MemoryRetrieval { query in
                 // Hybrid path: an unembeddable query must still match lexically, so default the
                 // vector to [] (cosine 0) rather than early-returning. Plan 10 WS3.
-                let qv = embedder.embed(query) ?? []
+                let qv = embedder.embed(query, role: .query) ?? []
                 // Diagnostics: score the WHOLE snapshot once (no threshold/topK) so we can see how
                 // close the best candidates came to the cutoff even when nothing passes.
                 let scored = MemoryStore.search(snapshot, query: query, queryVector: qv,

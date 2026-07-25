@@ -19,11 +19,28 @@ public final class MemoryStore {
         self.embedder = embedder
     }
 
-    /// Embed and persist a vector for `message` if it lacks one (skips system notices / empty text).
+    /// The row's effective vector space: rows written before versioning are NLEmbedding English.
+    private func effectiveEmbedderID(_ rowID: String?) -> String {
+        rowID ?? EmbedderIdentity.legacyNLEnglish.id
+    }
+
+    /// A stored vector participates in cosine only within the ACTIVE embedder's space; a stale
+    /// vector behaves exactly like "not embedded" (empty → cosine 0, lexical still applies).
+    private func liveVector(_ data: Data?, rowEmbedderID: String?) -> [Float] {
+        guard let data, effectiveEmbedderID(rowEmbedderID) == embedder.identity.id else { return [] }
+        return Self.unarchive(data)
+    }
+
+    /// Embed and persist a vector for `message` if it lacks one, or if its existing vector was
+    /// written by a different embedder (stale space → re-embed into the active space).
     public func index(_ message: Message) {
-        guard message.embedding == nil, message.role != .systemNotice else { return }
-        guard let vector = embedder.embed(message.text) else { return }
+        guard message.role != .systemNotice else { return }
+        let isCurrent = message.embedding != nil
+            && effectiveEmbedderID(message.embedderID) == embedder.identity.id
+        guard !isCurrent else { return }
+        guard let vector = embedder.embed(message.text, role: .document) else { return }
         message.embedding = Self.archive(vector)
+        message.embedderID = embedder.identity.id
         try? context.save()
         cachedSnapshot = nil  // a vector was written — invalidate the cache
     }
@@ -35,12 +52,20 @@ public final class MemoryStore {
     /// absent the note is still stored and visible/recoverable in `snapshot()` (scores 0 in cosine,
     /// so it is harmlessly filtered out of search by the threshold).
     /// Invalidates the snapshot cache so the next read includes the new note.
+    ///
+    /// CAREFUL: a nil `embedderID` does DOUBLE DUTY — it means both "row written before versioning
+    /// existed" (legacy NLEmbedding, per `effectiveEmbedderID`) and "never embedded at all" (this
+    /// path, when `embed` returned nil). That is only safe because `liveVector` and `backfill`'s
+    /// `isStale` both check the embedding DATA first and the id second, so a never-embedded row is
+    /// caught by the nil data regardless of how its id is interpreted. Do not tighten one of those
+    /// two checks without the other, or never-embedded rows start masquerading as legacy NL rows.
     public func saveNote(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let vector = embedder.embed(trimmed)   // may be nil if embedding is unavailable
+        let vector = embedder.embed(trimmed, role: .document)   // may be nil if embedding is unavailable
         let note = MemoryNote(text: trimmed, createdAt: Date(),
-                              embedding: vector.map { Self.archive($0) })
+                              embedding: vector.map { Self.archive($0) },
+                              embedderID: vector != nil ? embedder.identity.id : nil)
         context.insert(note)
         try? context.save()
         cachedSnapshot = nil  // a note was written — invalidate the cache
@@ -80,7 +105,7 @@ public final class MemoryStore {
         }
 
         // 2) Cosine near-duplicate: only meaningful when both sides actually embed.
-        if let candidateVector = embedder.embed(trimmed) {
+        if let candidateVector = embedder.embed(trimmed, role: .document) {
             for note in notes where !note.vector.isEmpty {
                 let sim = Vector.cosineSimilarity(candidateVector, note.vector)
                 if sim >= Self.noteDuplicateCosineThreshold {
@@ -103,10 +128,45 @@ public final class MemoryStore {
         s.split(whereSeparator: { $0.isWhitespace }).count
     }
 
-    /// One-time embedding of all persisted messages lacking a vector.
-    public func backfill() {
-        let all = (try? context.fetch(FetchDescriptor<Message>())) ?? []
-        for message in all where message.embedding == nil { index(message) }
+    /// Chunked migration + legacy embedding pass. Re-embeds rows that are missing a vector OR whose
+    /// vector belongs to a different embedder's space — up to `chunkSize` rows per call (oldest
+    /// first, messages then notes), so a large store converges over a few launches without ever
+    /// blocking startup. Idempotent: migrated rows are tagged and skipped on the next pass.
+    @discardableResult
+    public func backfill(chunkSize: Int = 50) -> Int {
+        let activeID = embedder.identity.id
+        var migrated = 0
+
+        func isStale(_ embedding: Data?, _ rowID: String?) -> Bool {
+            embedding == nil || effectiveEmbedderID(rowID) != activeID
+        }
+
+        let messages = (try? context.fetch(
+            FetchDescriptor<Message>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []
+        for message in messages where migrated < chunkSize {
+            guard message.role != .systemNotice, isStale(message.embedding, message.embedderID),
+                  let v = embedder.embed(message.text, role: .document) else { continue }
+            message.embedding = Self.archive(v)
+            message.embedderID = activeID
+            migrated += 1
+        }
+
+        let notes = (try? context.fetch(
+            FetchDescriptor<MemoryNote>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []
+        for note in notes where migrated < chunkSize {
+            guard isStale(note.embedding, note.embedderID),
+                  let v = embedder.embed(note.text, role: .document) else { continue }
+            note.embedding = Self.archive(v)
+            note.embedderID = activeID
+            migrated += 1
+        }
+
+        if migrated > 0 {
+            try? context.save()
+            cachedSnapshot = nil
+            EmberLog.memory.info("backfill: migrated \(migrated, privacy: .public) rows to \(activeID, privacy: .public)")
+        }
+        return migrated
     }
 
     /// Immutable snapshot of every embedded message for off-actor cosine search.
@@ -122,7 +182,7 @@ public final class MemoryStore {
                 conversationTitle: message.conversation?.title ?? "Untitled",
                 role: message.role,
                 text: message.text,
-                vector: Self.unarchive(data)
+                vector: liveVector(data, rowEmbedderID: message.embedderID)
             )
         }
         let notes = (try? context.fetch(FetchDescriptor<MemoryNote>())) ?? []
@@ -133,7 +193,7 @@ public final class MemoryStore {
                 conversationTitle: "Saved memory",
                 role: .user,
                 text: note.text,
-                vector: note.embedding.map { Self.unarchive($0) } ?? [],  // unembedded note: empty vector, never matches search
+                vector: liveVector(note.embedding, rowEmbedderID: note.embedderID),  // unembedded/stale note: empty vector, never matches search
                 source: .note
             )
         }

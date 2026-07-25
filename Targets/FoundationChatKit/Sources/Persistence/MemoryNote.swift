@@ -9,11 +9,13 @@ public final class MemoryNote {
     public var text: String
     public var createdAt: Date
     public var embedding: Data?
+    public var embedderID: String?
 
-    public init(id: UUID = UUID(), text: String, createdAt: Date, embedding: Data? = nil) {
+    public init(id: UUID = UUID(), text: String, createdAt: Date, embedding: Data? = nil, embedderID: String? = nil) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
         self.embedding = embedding
+        self.embedderID = embedderID
     }
 }

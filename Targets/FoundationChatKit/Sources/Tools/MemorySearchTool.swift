@@ -25,7 +25,7 @@ public struct MemorySearchTool: Tool {
     }
 
     public func call(arguments: Arguments) async throws -> String {
-        guard let queryVector = embedder.embed(arguments.query) else {
+        guard let queryVector = embedder.embed(arguments.query, role: .query) else {
             return "No relevant earlier context found."
         }
         let hits = MemoryStore.search(
