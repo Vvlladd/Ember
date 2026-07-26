@@ -46,6 +46,8 @@ Ember runs entirely on-device (no servers, no network, no API keys). It feels li
 
 Two Tuist targets. **All decision logic lives in the framework, behind a protocol seam**, so it's unit-testable with a mock on any machine — no Apple-Intelligence device required. The app target is a thin SwiftUI binding layer.
 
+> **Full diagram set in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**: high-level app architecture, context-window management (token counting, budget layout, compaction lifecycle), and the low-level class map — each with an editable Excalidraw source in [`docs/diagrams/`](docs/diagrams/).
+
 ### How memory works
 
 Editable diagram: [`docs/diagrams/ember-memory-architecture.excalidraw`](docs/diagrams/ember-memory-architecture.excalidraw) (open with [excalidraw.com](https://excalidraw.com) or the VS Code extension). Same flow inline:
