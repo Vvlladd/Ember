@@ -13,32 +13,35 @@ enum MemoryExtractor {
     }
 
     @MainActor
-    static func generate(userText: String, assistantText: String) async -> [String]? {
+    static func generate(userText: String) async -> [String]? {
+        // USER text only: feeding the assistant's reply in as well made the model launder its own
+        // suggestions into "user facts" (on-device it saved "likes exploring different European
+        // cities" — the assistant's idea, not the user's).
         let session = LanguageModelSession(
             instructions: """
-                You extract durable facts ABOUT THE USER from one chat exchange, for long-term memory.
+                You extract durable facts ABOUT THE USER from one chat message, for long-term memory.
 
                 Rules:
                 - Only stable facts about the USER: preferences, plans, goals, personal details \
                 (e.g. "wants to travel to Ghent in December", "likes the color red").
                 - Write each fact in the THIRD PERSON about the user, as a short statement. Never \
-                start a fact with "I", and never describe what the assistant can do or offer.
-                - IGNORE: greetings, small talk, acknowledgements, the user's questions, and \
-                anything the ASSISTANT said about itself or its capabilities.
+                start a fact with "I".
+                - Use ONLY what the user wrote. Never introduce places, names, or details the \
+                user did not write themselves.
+                - IGNORE: greetings, small talk, acknowledgements, and bare questions.
                 - If nothing durable qualifies, return an empty list.
                 """)
         let prompt = """
-            From this exchange, list durable facts about the user (third person). \
+            From this user message, list durable facts about the user (third person). \
             If there are none, return an empty list.
             User: \(userText)
-            Assistant: \(assistantText)
             """
         do {
             let response = try await session.respond(
                 to: prompt,
                 generating: ExtractedMemories.self,
                 options: UtilityGenerationOptions.extraction)
-            let facts = durableFacts(from: response.content.facts)
+            let facts = durableFacts(from: response.content.facts, groundedIn: userText)
             EmberLog.extraction.info("MemoryExtractor: kept \(facts.count, privacy: .public) of \(response.content.facts.count, privacy: .public) fact(s): [\(facts.joined(separator: " || "), privacy: .public)]")
             return facts
         } catch {
@@ -64,10 +67,10 @@ enum MemoryExtractor {
     /// that over-produces can't flood the note store on a single turn.
     static let maxFactsPerExchange = 5
 
-    /// Pure post-filter on extracted facts: trims, drops empties, greetings/acknowledgements, and
-    /// assistant-self-referential lines, then caps to `maxFactsPerExchange`. Deterministic so it
-    /// can be unit-tested off-device.
-    static func durableFacts(from raw: [String]) -> [String] {
+    /// Pure post-filter on extracted facts: trims, drops empties, greetings/acknowledgements,
+    /// assistant-self-referential lines, and facts containing UNGROUNDED proper nouns, then caps
+    /// to `maxFactsPerExchange`. Deterministic so it can be unit-tested off-device.
+    static func durableFacts(from raw: [String], groundedIn userText: String) -> [String] {
         Array(raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { fact in
@@ -75,8 +78,26 @@ enum MemoryExtractor {
                 if greetings.contains(normalized) { return false }
                 let lower = fact.lowercased()
                 if assistantMarkers.contains(where: { lower.contains($0) }) { return false }
-                return true
+                return isGrounded(fact, in: userText)
             }
             .prefix(maxFactsPerExchange))
+    }
+
+    /// Case- and diacritic-insensitive fold, so "Junín" matches "junin" but not "juns".
+    private static func folded(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).lowercased()
+    }
+
+    /// Entity-grounding guard: every capitalized token AFTER the fact's first word (candidate
+    /// proper noun) must literally appear in what the user typed. The model can rephrase, but it
+    /// cannot INVENT places or names — on-device it turned the Romanian fragment "Juns în Paris?"
+    /// into a saved fact about Junín, Peru. The first token is exempt (sentence casing).
+    static func isGrounded(_ fact: String, in userText: String) -> Bool {
+        let foldedUser = folded(userText)
+        let tokens = fact.split(whereSeparator: { !$0.isLetter && $0 != "-" }).dropFirst()
+        return tokens.allSatisfy { token in
+            guard let first = token.first, first.isUppercase else { return true }
+            return foldedUser.contains(folded(String(token)))
+        }
     }
 }

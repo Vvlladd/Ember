@@ -33,8 +33,13 @@ public enum MemoryContextBlock {
             return "Saved memory: \(hit.record.text)"
         case .conversation:
             // Third-person attribution: "You:" made the model adopt the snippet's first-person
-            // voice as its own; "the user said" keeps speaker and answerer distinct.
-            let who = hit.record.role == .user ? "the user said" : "you (the assistant) said"
+            // voice as its own; "the user said" keeps speaker and answerer distinct. Questions are
+            // labeled as questions so a past "What I like to eat?" can't read as background fact.
+            let isQuestion = hit.record.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .hasSuffix("?")
+            let who = hit.record.role == .user
+                ? (isQuestion ? "the user asked" : "the user said")
+                : "you (the assistant) said"
             return "From '\(hit.record.conversationTitle)' — \(who): \(hit.record.text)"
         }
     }

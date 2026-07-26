@@ -119,12 +119,12 @@ public final class FoundationModelProvider: ChatModelProvider {
         }
     }
 
-    public func extractMemories(userText: String, assistantText: String) async -> [String]? {
+    public func extractMemories(userText: String) async -> [String]? {
         guard case .available = availability else {
             EmberLog.extraction.notice("extractMemories: model unavailable — returning nil")
             return nil
         }
-        return await MemoryExtractor.generate(userText: userText, assistantText: assistantText)
+        return await MemoryExtractor.generate(userText: userText)
     }
 }
 

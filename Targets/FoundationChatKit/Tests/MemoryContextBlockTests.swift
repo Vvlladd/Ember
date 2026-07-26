@@ -61,6 +61,16 @@ struct MemoryContextBlockTests {
         #expect(MemoryContextBlock.formatHit(hit) == "From 'Code' — you (the assistant) said: debugging swift code")
     }
 
+    /// Past QUESTIONS carry no facts — label them so the model can't read "What I like to eat?"
+    /// as background information.
+    @Test func formatHitUserQuestionIsLabeledAsQuestion() {
+        let rec = MemoryRecord(messageID: UUID(), conversationID: UUID(),
+                               conversationTitle: "Food", role: .user,
+                               text: "What I like to eat?", vector: [])
+        let hit = MemoryHit(record: rec, score: 1)
+        #expect(MemoryContextBlock.formatHit(hit) == "From 'Food' — the user asked: What I like to eat?")
+    }
+
     /// The header must frame snippets as facts ABOUT the user and pin the answering voice —
     /// on-device the 3B model otherwise mirrors "You: I like apples" back in first person.
     @Test func wrapHeaderFramesUserFactsAndVoice() {
