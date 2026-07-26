@@ -208,8 +208,7 @@ struct ChatCoordinatorTests {
             $0.source == .note && $0.text == "User is planning a trip to Lisbon"
         })
         // The load-bearing contract: the user text and the FINAL assistant reply reach the provider.
-        #expect(provider.capturedExtractInput?.userText == "I'm planning a trip to Lisbon")
-        #expect(provider.capturedExtractInput?.assistantText == "ok")
+        #expect(provider.capturedExtractInput == "I'm planning a trip to Lisbon")
     }
 
     /// With the setting off, the same scripted facts are never persisted — and the gate

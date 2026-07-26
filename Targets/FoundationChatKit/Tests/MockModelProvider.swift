@@ -120,8 +120,8 @@ final class MockModelProvider: ChatModelProvider {
     private(set) var capturedStructuredSummarizeInput: String?
     /// Scripted result returned by `extractMemories(...)` (nil scripts the failure path).
     var extractedMemories: [String]? = []
-    /// Captures the most recent (userText, assistantText) passed to `extractMemories(...)`.
-    private(set) var capturedExtractInput: (userText: String, assistantText: String)?
+    /// Captures the most recent userText passed to `extractMemories(...)`.
+    private(set) var capturedExtractInput: String?
 
     func tokenCount(for text: String) -> Int? { exactCounts ? text.count : nil }
     func exactTokenCount(for text: String) async -> Int? {
@@ -144,8 +144,8 @@ final class MockModelProvider: ChatModelProvider {
         capturedStructuredSummarizeInput = text
         return scriptedStructuredSummary
     }
-    func extractMemories(userText: String, assistantText: String) async -> [String]? {
-        capturedExtractInput = (userText, assistantText)
+    func extractMemories(userText: String) async -> [String]? {
+        capturedExtractInput = userText
         return extractedMemories
     }
 }

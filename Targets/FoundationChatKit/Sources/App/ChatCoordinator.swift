@@ -162,12 +162,12 @@ public final class ChatCoordinator {
                 }
             }
             // Proactive auto-extraction (Plan 9): off the hot path (the reply is already rendered,
-            // like titling), gated by the setting. Reuses the final assistant reply captured before
-            // the long `await` (mirroring the buffer discipline), then persists each salient fact.
+            // like titling), gated by the setting. The non-empty captured reply still gates
+            // "did the turn complete", but only the USER's text reaches the extractor.
             if settings.autoExtractMemories,
                let assistantReply = finalAssistantReply,
                !assistantReply.isEmpty {
-                let facts = await provider.extractMemories(userText: text, assistantText: assistantReply)
+                let facts = await provider.extractMemories(userText: text)
                 if let facts {
                     EmberLog.extraction.info("auto-extract: model proposed \(facts.count, privacy: .public) fact(s) (cap \(Self.maxAutoExtractedFactsPerTurn, privacy: .public))")
                     for fact in facts.prefix(Self.maxAutoExtractedFactsPerTurn) {

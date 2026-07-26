@@ -48,7 +48,9 @@ public protocol ChatModelProvider: AnyObject {
     /// Compress chat history into a structured `ConversationSummary` (summary + key topics +
     /// durable user preferences) via guided generation. Returns nil when unavailable/failed/empty.
     func summarizeStructured(_ text: String) async -> ConversationSummary?
-    /// Extract durable USER facts from a completed exchange via guided generation. Returns nil on
-    /// failure/unavailable (best-effort); an empty array means nothing worth saving.
-    func extractMemories(userText: String, assistantText: String) async -> [String]?
+    /// Extract durable USER facts from the user's message via guided generation. Deliberately
+    /// takes ONLY the user's text — including the assistant reply made the small model launder
+    /// its own suggestions into "user facts". Returns nil on failure/unavailable (best-effort);
+    /// an empty array means nothing worth saving.
+    func extractMemories(userText: String) async -> [String]?
 }
