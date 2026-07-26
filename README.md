@@ -46,6 +46,47 @@ Ember runs entirely on-device (no servers, no network, no API keys). It feels li
 
 Two Tuist targets. **All decision logic lives in the framework, behind a protocol seam**, so it's unit-testable with a mock on any machine — no Apple-Intelligence device required. The app target is a thin SwiftUI binding layer.
 
+### How memory works
+
+Editable diagram: [`docs/diagrams/ember-memory-architecture.excalidraw`](docs/diagrams/ember-memory-architecture.excalidraw) (open with [excalidraw.com](https://excalidraw.com) or the VS Code extension). Same flow inline:
+
+```mermaid
+flowchart TD
+    U[User sends a message] --> C[ChatCoordinator.send]
+
+    subgraph WRITE["Write path (post-turn, off the hot path)"]
+        C --> I["MemoryStore.index<br/>USER messages only · role .document"]
+        I --> R[("Message rows<br/>vector + embedderID")]
+        C --> X["MemoryExtractor (guided gen)<br/>input = USER text ONLY"]
+        X --> G["durableFacts filter<br/>greetings + proper-noun grounding<br/>(no invented entities)"]
+        G --> N2["saveNoteIfNovel<br/>DedupText + cosine ≥ 0.85"]
+        T["saveMemory tool (buffered)"] --> N2
+        N2 --> NO[("MemoryNote rows<br/>curated durable facts")]
+    end
+
+    subgraph EMB["Embedder seam"]
+        S["TextEmbedder protocol<br/>identity + embed(_:role:)"]
+        GM["EmbeddingGemma-300m Core ML 256d<br/>(bundled weights) — else NLEmbedding 512d"]
+        B["backfill: 50 rows/launch, awaits ready()<br/>embedderID spaces never cross-compared"]
+        GM --> S
+        B -. re-embeds stale rows .-> R
+        B -. re-embeds stale rows .-> NO
+    end
+
+    I -. embeds via .-> S
+
+    subgraph READ["Read path (every turn)"]
+        Q["Embed query · role .query"] --> H["Hybrid search<br/>0.5·cosine + 0.5·lexical · ≥0.35 · topK 4<br/>notes ranked above snippets"]
+        H --> K["MemoryContextBlock<br/>near-dup collapse · ≤3 hits × 240ch<br/>'the user said / asked' framing"]
+        K --> M["⟦memory⟧ + prompt → on-device model"]
+        M -. transcript split .-> V["Context inspector + token gauge"]
+    end
+
+    R -. snapshot .-> H
+    NO -. snapshot .-> H
+    Q -. embeds via .-> S
+```
+
 ```
 ┌──────────────────────── Ember (app, SwiftUI) ─────────────────────────┐
 │  RootView (availability gate)                                          │
