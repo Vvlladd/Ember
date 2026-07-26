@@ -122,9 +122,39 @@ xcodebuild -workspace Ember.xcworkspace -scheme Ember \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
+### Optional: enable the EmbeddingGemma embedder
+
+Without this, the app runs on the `NLEmbedding` fallback (fully functional, weaker semantic recall). One-time setup per machine:
+
+```bash
+# 1. Python deps for the conversion script
+pip3 install sentence-transformers coremltools torch numpy
+
+# 2. Hugging Face auth + Gemma license (both one-time)
+huggingface-cli login     # token from huggingface.co/settings/tokens
+# then accept the license at https://huggingface.co/google/embeddinggemma-300m
+
+# 3. Fetch + convert to Core ML (writes to gitignored Targets/Ember/Resources/Models/;
+#    must end with a parity check printing "OK")
+./scripts/fetch_embeddinggemma.sh
+
+# 4. Regenerate so the weights are bundled, then rebuild
+tuist generate --no-open
+```
+
+On the next run, Console (subsystem `com.ember.FoundationChatKit`, category `embed`) logs `GemmaTextEmbedder ready (dim=256)`; new messages embed with Gemma and the existing store migrates automatically (50 rows per launch — old NLEmbedding vectors are never compared against Gemma vectors). Verify quality with the real-model ship gate:
+
+```bash
+TEST_RUNNER_EMBER_GEMMA_MODEL_DIR="$PWD/Targets/Ember/Resources/Models" \
+xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
+  -destination 'platform=macOS' test 2>&1 | tail -20
+```
+
+The gate (`gemmaBeatsNLOnFixtures`) passes only if EmbeddingGemma beats NLEmbedding on the retrieval-fixture eval with a 0.75 recall floor. Notes: the app bundle grows ~200 MB with the weights, embedding currently runs on the main actor (async inference is a tracked follow-up), and any distributed build containing the weights must flow down the Gemma Prohibited Use Policy (see Embeddings above).
+
 ## ✅ Testing
 
-All logic is TDD-covered in the framework (243 tests):
+All logic is TDD-covered in the framework (258 tests):
 
 ```bash
 xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
