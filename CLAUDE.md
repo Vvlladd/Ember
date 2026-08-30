@@ -1,8 +1,8 @@
-# Ember — Claude Code project guide
+# Ember — AI coding-agent project guide
 
 Ember is a **privacy-first, fully on-device AI chat app** for iOS / iPadOS / macOS 26, built on Apple's **Foundation Models** framework. It looks like Claude/Codex (conversation sidebar, streaming bubbles, composer) and adds a **transparency layer**: a Context inspector showing exactly what the model sees, and a token gauge against the 4,096-token window.
 
-This file tells Claude Code how to work in this repo. Keep it accurate when things change.
+This file tells Claude Code, Codex, and other coding agents how to work in this repo. Keep it accurate when things change. `AGENTS.md` is a symlink to this file so the guidance stays in sync.
 
 ---
 
@@ -44,12 +44,11 @@ Two Tuist targets; **all decision logic is in the framework, behind a protocol s
 - **On-device / privacy-first ethos:** **no network capability or entitlement.** Embeddings use **EmbeddingGemma-300m on Core ML** (256-dim, behind `TextEmbedder`) when its weights are bundled, else `NLEmbedding` (system framework). Gemma weights are dev-fetched per machine and **never committed** to the repo. Keep it on-device. *Caveat to state honestly:* the tokenizer comes from `swift-transformers`, which only vends one umbrella `Transformers` library product — so it transitively links a **dormant Hugging Face Hub client**. No runtime code path reaches it (only `AutoTokenizer.from(modelFolder:)`, a local-disk load) and the app has no network entitlement, but the code is linked in.
 - **Keep the app target compiling at every commit** — e.g. adding a `ChatError` case requires updating `ErrorBanner`'s exhaustive switch in the same change.
 - **EmbeddingGemma setup:** run `scripts/fetch_embeddinggemma.sh` once per machine to exercise the real embedder (weights land in gitignored `Targets/Ember/Resources/Models/`); without it the app/tests run on the `NLEmbedding` fallback. The `gemmaBeatsNLOnFixtures` ship-gate test only runs when the test process sees `EMBER_GEMMA_MODEL_DIR` pointing at that Models dir — from **xcodebuild** set it as `TEST_RUNNER_EMBER_GEMMA_MODEL_DIR=…` (xcodebuild forwards only `TEST_RUNNER_`-prefixed vars into the test runner, stripping the prefix); from **Xcode's scheme editor** add it as plain `EMBER_GEMMA_MODEL_DIR`. Without it the test SKIPs.
-- **TDD, granular commits.** Commit trailer:
-  `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
+- **TDD, granular commits.** If an AI assistant materially co-authors a change, use that assistant's applicable co-author trailer and disclose the assistance in the pull request.
 
 ## Project skills — invoke via the Skill tool when relevant
 
-Reusable skills live in **`.claude/skills/`** (imported from `unPiRoomPlan`). Treat these as the house style for iOS/SwiftUI/Foundation Models work and **invoke the matching skill before doing that kind of task**:
+Reusable skills live in **`.claude/skills/`** and **`.agents/skills/`** (imported from `unPiRoomPlan`). Treat these as the house style for iOS/SwiftUI/Foundation Models work and **invoke the matching skill before doing that kind of task**:
 
 | Skill | Use it when… |
 |---|---|
@@ -63,7 +62,7 @@ Reusable skills live in **`.claude/skills/`** (imported from `unPiRoomPlan`). Tr
 | **`gh-issue-fix-flow`** | Taking a GitHub issue number end-to-end: inspect via `gh`, fix, build/test, commit-closing, push. |
 | **`app-store-changelog`** | Generating user-facing release notes / "What's New" from git history since the last tag. |
 
-> Project skills are auto-discovered by Claude Code; this table is the index of when each applies.
+> Project skills are auto-discovered by the active coding agent; this table is the index of when each applies.
 
 ## Where things live
 

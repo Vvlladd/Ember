@@ -1,191 +1,179 @@
 # 🔥 Ember
 
-**A privacy-first, fully on-device AI chat app built on Apple's Foundation Models framework — with the model's working memory made visible.**
+<p align="center">
+  <strong>Private, on-device AI chat for Apple platforms—with inspectable memory and honest token accounting.</strong>
+</p>
 
-Ember runs entirely on-device (no servers, no network, no API keys). It feels like Claude/Codex — a conversation sidebar, streaming message bubbles, a clean composer — but adds a distinctive **transparency layer**: because the on-device model has a hard **4,096-token context window**, Ember makes that working memory *inspectable*. A **Context** view shows the exact prompt the model sees (instructions, tools, tool calls/outputs, retrieved memories); a **Tokens** gauge shows how much of the window is used, broken down line by line.
+<p align="center">
+  <a href="https://www.swift.org/"><img alt="Swift 6" src="https://img.shields.io/badge/Swift-6.0-F05138?logo=swift&logoColor=white"></a>
+  <a href="https://developer.apple.com/documentation/foundationmodels"><img alt="Apple Foundation Models" src="https://img.shields.io/badge/Apple-Foundation%20Models-000000?logo=apple&logoColor=white"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/iOS%2026%20%7C%20iPadOS%2026%20%7C%20macOS%2026-007AFF">
+  <img alt="Runs on device" src="https://img.shields.io/badge/AI-on--device-2EA44F">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+</p>
 
-- **Platforms:** iOS 26 · iPadOS 26 · macOS 26 (Apple-Intelligence-capable devices)
-- **Stack:** SwiftUI · MVVM + `@Observable` · SwiftData · FoundationModels · NaturalLanguage · Tuist · Swift Testing
-- **No external runtime dependencies. No network entitlement.**
+Ember is an open-source SwiftUI chat app built on Apple's Foundation Models framework. It keeps generation, retrieval, storage, and tools on the user's device—without a cloud backend, API key, or network entitlement.
 
-| Streaming chat + token gauge | Conversation memory (RAG) | Token budget inspector |
+The differentiator is visibility. Ember shows the literal context sent to the model, including retrieved memories and tool activity, then accounts for that context line by line against the model's token window.
+
+> [!NOTE]
+> Ember is a developer preview for iOS, iPadOS, and macOS 26. Running the real model requires a compatible Apple Intelligence environment.
+
+| Streaming chat | Transparent memory | Token budget inspector |
 |---|---|---|
-| ![Chat](docs/screenshots/chat.png) | ![Memory recall](docs/screenshots/memory-recall.png) | ![Token inspector](docs/screenshots/token-inspector.png) |
+| ![A streaming Ember conversation with its token gauge](docs/screenshots/chat.png) | ![A recalled memory shown inside Ember](docs/screenshots/memory-recall.png) | ![Ember's per-line token inspector](docs/screenshots/token-inspector.png) |
 
----
+## Why Ember?
 
-## ✨ Features
+Most chat apps hide two important decisions: **what the model remembers** and **what consumes its context window**. Ember makes both inspectable.
 
-**Chat & UX**
-- Streaming responses (cumulative snapshots → a single growing bubble), Stop to cancel, `isResponding` send-guard.
-- Adaptive `NavigationSplitView` (sidebar + chat) with a right-hand `[Context | Tokens]` inspector and a toolbar token gauge.
-- Markdown rendering in assistant bubbles (prose + fenced code blocks), via native `AttributedString`.
-- Availability gating with a tailored screen per unavailable reason (device not eligible / Apple Intelligence off / model not ready), live re-checks, and a Settings deep-link.
-- Persisted multi-conversation history (SwiftData), rename, and full-text search across titles + messages.
+[![Ember's private execution boundary, from local memory retrieval through visible model context](docs/diagrams/rendered/ember-transparency-overview.png)](docs/diagrams/rendered/ember-transparency-overview.png)
 
-**Transparency**
-- **Context inspector** renders the *literal* `session.transcript` — instructions, user/assistant turns, and every `TOOL CALL` / `TOOL OUTPUT` with formatted JSON args.
-- **Tokens** tab: live gauge, per-line breakdown (instructions, each tool definition, each turn, tool usage), green/amber/red zones, "reserved for reply", and honest **exact (26.4+) vs estimated** labeling.
+*Editable sources: [Mermaid](docs/diagrams/mermaid/ember-transparency-overview.mmd) · [Excalidraw app architecture](docs/diagrams/ember-app-architecture.excalidraw)*
 
-**On-device intelligence**
-- **Tool calling** — three pure, on-device tools (`currentDateTime`, `calculator`, `unitConverter`) built on the FoundationModels `Tool` protocol with `@Generable`/`@Guide` arguments. No network, no permissions.
-- **Guided generation** — model-generated conversation titles (`respond(to:generating:)`), with a deterministic fallback.
-- **Conversation memory (RAG)** — **automatic** retrieve-before-generate: every turn embeds the prompt and injects the top-k relevant snippets from *past conversations* (on-device `NLEmbedding` cosine) into what the model sees, so recall no longer depends on the model choosing a tool. **Curated fact-notes are ranked above raw conversation snippets** (`search(preferNotes:)`), so durable facts aren't buried by near-identical past *questions* — which embed almost identically to each other. The `searchMemory` tool is retained as a fallback, and a `saveMemory` write tool lets the model deliberately persist curated facts. The app also **automatically extracts durable user facts after each turn** (guided generation, third-person, with greeting/assistant-chatter filtering) and stores them as deduped curated notes (`saveNoteIfNovel`: normalized-text, substring-containment, and cosine near-duplicate checks), so recall rides the reliable curated-note path rather than weak message embeddings (gated by `autoExtractMemories`). Every retrieved memory is visible in the inspector (teal **MEMORY**) and counted in the budget.
-- **Advanced budgeting** — model-summarized context compaction (with a deterministic keep-first-last fallback) and reserve-for-reply: Ember compacts *proactively* before a turn would overflow, so replies always have headroom.
-- **Resilient generation** — transient on-device runtime failures (e.g. an internal `com.apple.tokengeneration` error, distinct from context overflow) are detected and **retried once** before surfacing a friendly, recoverable banner instead of a raw `NSError`. An opt-in `os.Logger` diagnostic layer (`EmberLog`) traces every memory/RAG boundary for on-device debugging.
+### At a glance
 
-**Embeddings**
-- **EmbeddingGemma-300m on Core ML** — a 256-dim Matryoshka-truncated on-device embedding model with role-aware query/document task prefixes, implemented behind the same `TextEmbedder` protocol seam as the `NLEmbedding` fallback. Weights are dev-fetched once per machine via `scripts/fetch_embeddinggemma.sh` (requires `pip install sentence-transformers coremltools torch numpy`, `huggingface-cli login`, and accepting the Gemma license) and land in a gitignored `Targets/Ember/Resources/Models/` directory — **never committed**. Contributors and CI without the weights build and run unmodified on the `NLEmbedding` fallback (`EmberApp.makeEmbedder()` picks whichever is bundled, and logs which one it chose).
-- **Dependency caveat, stated plainly:** only the tokenizer is used, but `swift-transformers` vends a single umbrella `Transformers` library product (there is no narrower `Tokenizers` product to depend on), so the build transitively links a **dormant Hugging Face Hub client**. Nothing at runtime reaches it — the tokenizer is loaded from a local folder via `AutoTokenizer.from(modelFolder:)` — and the app declares no network entitlement, but the code is linked into the binary.
-- Vectors are versioned by `embedderID` on `Message`/`MemoryNote` rows (`nil` = legacy NLEmbedding); different embedding spaces are never cross-compared, and a chunked background migration (`MemoryStore.backfill(chunkSize:)`) re-embeds stale rows on launch.
-- **License:** the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) require any distributed build that bundles the weights to flow down Google's [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy) in the app's own terms of use.
+| Concern | Ember's approach |
+|---|---|
+| Generation | Apple's on-device `SystemLanguageModel` with streaming output |
+| Memory | Local hybrid lexical + semantic RAG over conversations and curated facts |
+| Embeddings | EmbeddingGemma-300m on Core ML when locally bundled; `NLEmbedding` fallback |
+| Transparency | The Context inspector renders the effective transcript, memory blocks, tool calls, and outputs |
+| Token usage | Live estimates while typing/streaming, followed by asynchronous exact counts when available |
+| Persistence | SwiftData rows plus a best-effort encoded transcript for fast resume |
+| Networking | No backend and no network entitlement |
+| Testability | Model and embedder protocol seams with deterministic test doubles |
 
----
+## A private turn, end to end
 
-## 🧱 Architecture
+[![Sequence diagram of one private Ember turn from the user message through retrieval, generation, inspection, and persistence](docs/diagrams/rendered/ember-turn-lifecycle.png)](docs/diagrams/rendered/ember-turn-lifecycle.png)
 
-Two Tuist targets. **All decision logic lives in the framework, behind a protocol seam**, so it's unit-testable with a mock on any machine — no Apple-Intelligence device required. The app target is a thin SwiftUI binding layer.
+*Editable source: [Mermaid](docs/diagrams/mermaid/ember-turn-lifecycle.mmd) · Related: [Excalidraw app architecture](docs/diagrams/ember-app-architecture.excalidraw)*
 
-> **Full diagram set in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**: high-level app architecture, context-window management (token counting, budget layout, compaction lifecycle), and the low-level class map — each with an editable Excalidraw source in [`docs/diagrams/`](docs/diagrams/).
+## Features
 
-### How memory works
+### Chat and native UX
 
-Editable diagram: [`docs/diagrams/ember-memory-architecture.excalidraw`](docs/diagrams/ember-memory-architecture.excalidraw) (open with [excalidraw.com](https://excalidraw.com) or the VS Code extension). Same flow inline:
+- Streaming replies with cancellation and duplicate-send protection.
+- Adaptive `NavigationSplitView` for iPhone, iPad, and Mac.
+- Persisted conversations with rename and full-text search.
+- Markdown rendering using native `AttributedString`.
+- Clear availability states when Apple Intelligence or the model is unavailable.
 
-```mermaid
-flowchart TD
-    U[User sends a message] --> C[ChatCoordinator.send]
+### Transparent context
 
-    subgraph WRITE["Write path (post-turn, off the hot path)"]
-        C --> I["MemoryStore.index<br/>USER messages only · role .document"]
-        I --> R[("Message rows<br/>vector + embedderID")]
-        C --> X["MemoryExtractor (guided gen)<br/>input = USER text ONLY"]
-        X --> G["durableFacts filter<br/>greetings + proper-noun grounding<br/>(no invented entities)"]
-        G --> N2["saveNoteIfNovel<br/>DedupText + cosine ≥ 0.85"]
-        T["saveMemory tool (buffered)"] --> N2
-        N2 --> NO[("MemoryNote rows<br/>curated durable facts")]
-    end
+- The Context inspector projects the effective model transcript.
+- Instructions, messages, retrieved memories, tool calls, and tool outputs remain distinguishable.
+- Every injected memory is shown as a `MEMORY` entry instead of silently influencing the response.
+- Context entries are budgeted once, preventing hidden or double-counted memory cost.
 
-    subgraph EMB["Embedder seam"]
-        S["TextEmbedder protocol<br/>identity + embed(_:role:)"]
-        GM["EmbeddingGemma-300m Core ML 256d<br/>(bundled weights) — else NLEmbedding 512d"]
-        B["backfill: 50 rows/launch, awaits ready()<br/>embedderID spaces never cross-compared"]
-        GM --> S
-        B -. re-embeds stale rows .-> R
-        B -. re-embeds stale rows .-> NO
-    end
+### On-device intelligence
 
-    I -. embeds via .-> S
+- Pure local tools for date/time, calculation, and unit conversion.
+- Guided generation for titles, structured summaries, and durable-fact extraction.
+- Automatic retrieve-before-generate memory on every eligible turn.
+- Model-decided `saveMemory` plus grounded post-turn fact extraction.
+- Proactive context compaction with deterministic fallback behavior.
+- One automatic retry for recognized transient generation failures.
 
-    subgraph READ["Read path (every turn)"]
-        Q["Embed query · role .query"] --> H["Hybrid search<br/>0.5·cosine + 0.5·lexical · ≥0.35 · topK 4<br/>notes ranked above snippets"]
-        H --> K["MemoryContextBlock<br/>near-dup collapse · ≤3 hits × 240ch<br/>'the user said / asked' framing"]
-        K --> M["⟦memory⟧ + prompt → on-device model"]
-        M -. transcript split .-> V["Context inspector + token gauge"]
-    end
+## Transparent memory
 
-    R -. snapshot .-> H
-    NO -. snapshot .-> H
-    Q -. embeds via .-> S
-```
+Ember stores two kinds of recall material: original user messages and concise, durable `MemoryNote` facts. It ranks notes above raw snippets, blends lexical and semantic relevance, collapses near-duplicates, and injects only a small visible memory block.
 
-```
-┌──────────────────────── Ember (app, SwiftUI) ─────────────────────────┐
-│  RootView (availability gate)                                          │
-│   ├─ UnavailableView(reason)                                           │
-│   └─ ChatScene ── NavigationSplitView ─┬─ ConversationListView (search,│
-│                                        │   rename, new chat)           │
-│                                        ├─ ChatView (MarkdownText        │
-│                                        │   bubbles + ComposerView)      │
-│                                        └─ .inspector → [Context|Tokens] │
-└───────────────────────────────────────┬───────────────────────────────┘
-                                         │ depends on
-┌──────────────── FoundationChatKit (framework, no UI) ──────────────────┐
-│  ChatCoordinator (@Observable @MainActor)  ── owns store + engine       │
-│  ConversationEngine (@Observable)          turn lifecycle, budgeting    │
-│  ChatModelProvider / ChatSessionHandle  ┐  the seam                     │
-│     ├─ FoundationModelProvider (real)   ┘  wraps SystemLanguageModel    │
-│     └─ MockModelProvider (tests)                                        │
-│  Tools: Calculator/DateTime/UnitConverter/MemorySearch/SaveMemory       │
-│  Memory: TextEmbedder · MemoryStore · MemoryContextBlock · MemoryNote   │
-│          MemoryWriteBuffer · auto-retrieval seam · ContextCompactor      │
-│  Tokens: TokenEstimator · TokenBudgetCalculator · TokenBudget           │
-│  Context: ContextProjection · OverflowRecovery                          │
-│  Persistence: Conversation · Message · ConversationStore (SwiftData)    │
-└──────────────────────── depends only on: Apple frameworks ─────────────┘
-```
+[![Ember's transparent memory write, storage, embedding, retrieval, and inspection pipeline](docs/diagrams/rendered/ember-memory-pipeline.png)](docs/diagrams/rendered/ember-memory-pipeline.png)
 
-**Key patterns:** MVVM + `@Observable`; dependency injection via protocols; **dual-truth persistence** (durable `Message` rows are the display source of truth; an encoded `Transcript` is a best-effort fast-resume cache); tools are pure `Sendable` `Tool` conformances; memory search runs over an immutable per-session snapshot so the tool stays pure.
+*Editable sources: [Mermaid](docs/diagrams/mermaid/ember-memory-pipeline.mmd) · [Excalidraw memory architecture](docs/diagrams/ember-memory-architecture.excalidraw)*
 
----
+Important invariants are test-pinned:
 
-## 📁 Project structure
+- Different embedding spaces never mix; comparisons require a matching `embedderID`.
+- Extracted facts may not introduce proper nouns absent from the user's text.
+- The memory block round-trips into a distinct context entry and is counted exactly once.
+- Embedding failure degrades to lexical retrieval instead of breaking chat.
 
-```
-AppleFoundationModels/
-├── Project.swift            # Tuist project (targets, destinations, bundle ids)
-├── Tuist.swift
-├── CLAUDE.md                # Claude Code project guide (build/conventions/skills index)
-├── CONTRIBUTING.md          # how to build, test, and submit changes
-├── LICENSE                  # MIT
-├── README.md
-├── Targets/
-│   ├── FoundationChatKit/   # framework: all logic + tests (Sources/, Tests/)
-│   └── Ember/               # SwiftUI app (Sources/, Resources/)
-├── docs/
-│   ├── superpowers/
-│   │   ├── specs/           # one design spec per phase
-│   │   └── plans/           # one task-by-task implementation plan per phase
-│   └── screenshots/
-└── .claude/
-    └── skills/              # reusable iOS/SwiftUI/Foundation-Models skills
-```
+## Honest token accounting
 
----
+Everything competes for the model's context window: instructions, tool definitions, retrieved memory, conversation history, the new prompt, and room for the answer. The current fallback capacity is 4,096 tokens; Ember reads `contextSize` from the model when available. It uses a fast estimator on the interactive path, refreshes with Apple's asynchronous exact counter after a turn, and compacts before the projected total overflows.
 
-## 🛠 Requirements
+[![Ember's token accounting and proactive context compaction flow](docs/diagrams/rendered/ember-token-accounting.png)](docs/diagrams/rendered/ember-token-accounting.png)
 
-- **macOS 26 (Tahoe)** + **Xcode 26.x** (built against the 26.4 SDK so `contextSize`/`tokenCount(for:)` resolve).
-- **[Tuist](https://docs.tuist.dev)** (`tuist generate` to produce the Xcode project).
-- To run the real on-device model: an **Apple-Intelligence-capable device** (or the iOS 26 simulator, where the model is available) with **Apple Intelligence enabled**. The app degrades gracefully to a tailored "unavailable" screen otherwise.
+*Editable sources: [Mermaid](docs/diagrams/mermaid/ember-token-accounting.mmd) · [Excalidraw context-window architecture](docs/diagrams/ember-context-window.excalidraw)*
 
-## ▶️ Build & run
+The gauge labels estimated and exact states honestly and groups usage into instructions, tools, memory, history, and reserved reply space.
+
+## Architecture
+
+Ember has two Tuist targets. The app target is deliberately thin; decision logic lives in a framework behind protocols so it can be tested without an Apple Intelligence device.
+
+[![High-level architecture of the Ember SwiftUI app, FoundationChatKit framework, production adapters, and test seams](docs/diagrams/rendered/ember-system-architecture.png)](docs/diagrams/rendered/ember-system-architecture.png)
+
+*Editable sources: [Mermaid](docs/diagrams/mermaid/ember-system-architecture.mmd) · [Excalidraw app architecture](docs/diagrams/ember-app-architecture.excalidraw)*
+
+See [the full architecture guide](docs/ARCHITECTURE.md) for context-window lifecycle and class-level diagrams. The [diagram asset guide](docs/diagrams/README.md) maps every rendered PNG to its editable Mermaid and Excalidraw source and documents the export command.
+
+## Privacy and dependency notes
+
+Public projects earn trust by being explicit about boundaries:
+
+- Chat generation, retrieval, tools, and persistence run locally. Ember has no server component or network entitlement.
+- Conversation data is stored locally in SwiftData. The repository contains no telemetry or analytics integration.
+- EmbeddingGemma weights are **not committed**. Contributors fetch them locally and any distribution that bundles them must comply with the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) and [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy).
+- Ember uses only the local tokenizer API from `swift-transformers`, but that package exposes one umbrella `Transformers` product and therefore links a dormant Hugging Face Hub client. Ember does not call that client and has no network entitlement.
+- Developer diagnostics currently write some short user-derived strings to Apple's local Unified Logging with public visibility. Do not share raw logs containing personal data; production distribution should gate or redact this instrumentation.
+
+## Requirements
+
+- macOS 26 and Xcode 26.x with the iOS/macOS 26 SDK.
+- [Tuist](https://docs.tuist.dev) for project generation.
+- A compatible Apple Intelligence environment to exercise the real model. The test suite uses mocks and does not require one.
+
+## Build
 
 ```bash
 git clone https://github.com/Vvlladd/Ember.git
 cd Ember
-tuist generate            # creates Ember.xcworkspace
-open Ember.xcworkspace    # ⌘R the "Ember" scheme (macOS or an iOS 26 simulator)
+tuist generate --no-open
+open Ember.xcworkspace
 ```
 
-Or from the command line:
+Build from the command line:
 
 ```bash
+xcodebuild -workspace Ember.xcworkspace -scheme Ember \
+  -destination 'platform=macOS' build
+
 xcodebuild -workspace Ember.xcworkspace -scheme Ember \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
-### Optional: enable the EmbeddingGemma embedder
+> [!IMPORTANT]
+> Run `tuist generate --no-open` after adding or deleting any source or test file. Tuist resolves source globs during generation.
 
-Without this, the app runs on the `NLEmbedding` fallback (fully functional, weaker semantic recall). One-time setup per machine:
+## Test
+
+All decision logic is covered through `FoundationChatKit` using Swift Testing and deterministic model/embedder doubles:
 
 ```bash
-# 1. Python deps for the conversion script
+xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
+  -destination 'platform=macOS' test 2>&1 | tail -40
+```
+
+The required result is `** TEST SUCCEEDED **`. SourceKit diagnostics are unreliable without the generated module graph; `xcodebuild` is the source of truth.
+
+## Optional: EmbeddingGemma
+
+Ember works without downloaded weights by falling back to `NLEmbedding`. To exercise the higher-quality Core ML embedder locally:
+
+```bash
 pip3 install sentence-transformers coremltools torch numpy
-
-# 2. Hugging Face auth + Gemma license (both one-time)
-huggingface-cli login     # token from huggingface.co/settings/tokens
-# then accept the license at https://huggingface.co/google/embeddinggemma-300m
-
-# 3. Fetch + convert to Core ML (writes to gitignored Targets/Ember/Resources/Models/;
-#    must end with a parity check printing "OK")
+huggingface-cli login
 ./scripts/fetch_embeddinggemma.sh
-
-# 4. Regenerate so the weights are bundled, then rebuild
 tuist generate --no-open
 ```
 
-On the next run, Console (subsystem `com.ember.FoundationChatKit`, category `embed`) logs `GemmaTextEmbedder ready (dim=256)`; new messages embed with Gemma and the existing store migrates automatically (50 rows per launch — old NLEmbedding vectors are never compared against Gemma vectors). Verify quality with the real-model ship gate:
+Before running the script, accept the EmbeddingGemma license on its Hugging Face model page. The script writes only to the gitignored `Targets/Ember/Resources/Models/` directory and finishes with a parity check.
+
+Run the real-model retrieval quality gate with:
 
 ```bash
 TEST_RUNNER_EMBER_GEMMA_MODEL_DIR="$PWD/Targets/Ember/Resources/Models" \
@@ -193,54 +181,49 @@ xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
   -destination 'platform=macOS' test 2>&1 | tail -20
 ```
 
-The gate (`gemmaBeatsNLOnFixtures`) passes only if EmbeddingGemma beats NLEmbedding on the retrieval-fixture eval with a 0.75 recall floor. Notes: the app bundle grows ~200 MB with the weights, embedding currently runs on the main actor (async inference is a tracked follow-up), and any distributed build containing the weights must flow down the Gemma Prohibited Use Policy (see Embeddings above).
+## Project layout
 
-## ✅ Testing
-
-All logic is TDD-covered in the framework (258 tests):
-
-```bash
-xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
-  -destination 'platform=macOS' test 2>&1 | tail -20    # ** TEST SUCCEEDED **
+```text
+Ember/
+├── AGENTS.md -> CLAUDE.md      # shared coding-agent guidance
+├── CONTRIBUTING.md             # contribution workflow and PR checklist
+├── LICENSE                     # MIT license for the source code
+├── Project.swift               # Tuist targets and resources
+├── Targets/
+│   ├── FoundationChatKit/      # engine, memory, tools, persistence, tests
+│   └── Ember/                  # SwiftUI app and resources
+├── docs/
+│   ├── ARCHITECTURE.md         # deeper GitHub-rendered diagrams
+│   ├── diagrams/               # rendered PNG + Mermaid/Excalidraw sources
+│   └── superpowers/            # feature specs and implementation plans
+└── scripts/                    # local model preparation utilities
 ```
 
-The `MockModelProvider`/`MockEmbedder` doubles mean the entire engine, tools, memory, budgeting, and compaction logic run green without an Apple-Intelligence device.
+## Project status
+
+Built today:
+
+- Streaming multi-conversation chat and availability gating.
+- Literal Context inspector and per-line token budget.
+- On-device tools and guided generation.
+- Hybrid conversation-memory RAG with automatic fact extraction and deduplication.
+- Proactive compaction, overflow recovery, and transient-error retry.
+- Optional EmbeddingGemma Core ML embeddings with versioned-vector migration.
+
+Good next contributions include attachments, multilingual retrieval, iCloud/CloudKit sync, richer compaction, moving embedding inference off the main actor, and production-hardening diagnostic privacy.
+
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), which covers the privacy constraints, TDD workflow, build matrix, and pull-request checklist.
+
+For substantial changes, please open an issue first so the design can be agreed before implementation.
+
+## License
+
+Ember's source code is released under the [MIT License](LICENSE), © 2026 Vlad Toma.
+
+EmbeddingGemma model weights are not part of this repository or the MIT-licensed source distribution; their separate terms apply if you fetch or distribute them.
 
 ---
 
-## 🗺 Roadmap status — **Phases 1–6 complete**
-
-| Phase | Theme | Status |
-|------|-------|--------|
-| **1** | Streaming chat · availability gating · token gauge · Context inspector · persisted history · overflow recovery | ✅ Built |
-| **2** | Tool calling (`Tool` + `@Generable`/`@Guide`) · guided/structured generation | ✅ Built |
-| **3** | RAG (on-device conversation memory) · advanced budgeting (model-summarized compaction, reserve-for-reply) | ✅ Built |
-| **4** | Memory upgrades — **automatic** retrieve-before-generate · embedder/snapshot caching · model-decided saves (`saveMemory`) | ✅ Built |
-| **5** | Proactive memory — **automatic** post-turn extraction of durable user facts → deduped curated `MemoryNote`s (guided generation; `saveNoteIfNovel`; gated by `autoExtractMemories`) | ✅ Built |
-| **6** | Recall & reliability hardening — notes-ranked-above-snippets retrieval (facts no longer buried by past questions), tighter extraction + de-dup, transient generation-error retry, `os.Logger` diagnostics | ✅ Built |
-
-Each phase was developed spec-first (see `docs/superpowers/`) and verified end-to-end on the iOS 26 simulator — including a real on-device tool call (`calculator` → 8,673,516), cross-conversation memory recall (`searchMemory` → "Lisbon"), and a full retrieve → generate → save → de-dup turn traced live through the `EmberLog` diagnostics.
-
-Possible future work (beyond the current roadmap): **hybrid lexical + semantic retrieval** (Plan 8, documented), attachments/images, iCloud/CloudKit sync, multilingual embeddings, and richer compaction strategies.
-
----
-
-## 🤖 Working in this repo with Claude Code
-
-- **`CLAUDE.md`** documents build/test commands, architecture, and conventions.
-- **`.claude/skills/`** holds reusable skills (Foundation Models, SwiftUI, Swift Concurrency, Liquid Glass, performance audit, simulator debugging, GitHub issue flow, App Store changelog). Claude Code auto-discovers them; `CLAUDE.md` indexes when each applies.
-- Specs and task-by-task plans for every phase live in `docs/superpowers/`.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read **[CONTRIBUTING.md](CONTRIBUTING.md)** for the build/test workflow, the TDD + granular-commit conventions, and the on-device/privacy constraints (no network, keep all logic behind the framework's protocol seam). In short: `tuist generate` after adding/removing files, and `xcodebuild … -scheme FoundationChatKit … test` must show **TEST SUCCEEDED** before you open a PR.
-
-## 📄 License
-
-Released under the **[MIT License](LICENSE)**. © 2026 Vlad Toma.
-
----
-
-*Built with [Tuist](https://docs.tuist.dev) and Apple's [Foundation Models](https://developer.apple.com/documentation/foundationmodels) framework. On-device, private, and transparent by design.*
+Built with [SwiftUI](https://developer.apple.com/xcode/swiftui/), [Foundation Models](https://developer.apple.com/documentation/foundationmodels), and [Tuist](https://tuist.dev/). Ember is an independent project and is not affiliated with Apple, Google, Hugging Face, Anthropic, or OpenAI.

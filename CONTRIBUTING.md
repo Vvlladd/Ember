@@ -1,86 +1,154 @@
 # Contributing to Ember
 
-Thanks for your interest in improving **Ember** — a privacy-first, fully on-device AI chat app built on Apple's Foundation Models framework. This guide covers how to build, test, and submit changes.
+Thank you for helping improve Ember. Contributions of code, tests, documentation, design feedback, and reproducible bug reports are welcome.
 
-By participating you agree your contributions are licensed under the project's [MIT License](LICENSE).
+By contributing, you agree that your contribution will be licensed under the project's [MIT License](LICENSE).
 
----
+## Start here
 
-## Guiding principles
+- Use GitHub Issues for reproducible bugs and focused feature proposals.
+- For substantial features or architecture changes, open an issue before implementation so the direction can be agreed first.
+- Never attach private conversations or unredacted Ember logs to a public issue.
+- Keep discussion constructive, specific, and welcoming.
 
-These are non-negotiable for this project — please keep them in mind before opening a PR:
+## Project principles
 
-1. **On-device & private by design.** No network calls, **no network entitlement**, no third-party runtime dependencies. Embeddings use the system `NLEmbedding`; the model is Apple's on-device `SystemLanguageModel`. If a change would send data off-device, it doesn't belong here.
-2. **All decision logic lives in the framework, behind a protocol seam.** `FoundationChatKit` must be unit-testable with `MockModelProvider`/`MockEmbedder` on any machine — *no Apple-Intelligence device required*. The `Ember` app target stays a thin SwiftUI binding layer.
-3. **TDD, with granular commits.** Write a failing test, make it pass, refactor. Keep commits small and focused.
-4. **Keep the app target compiling at every commit.** e.g. adding a `ChatError` case requires updating `ErrorBanner`'s exhaustive `switch` in the *same* change.
+These constraints define Ember and should be preserved by every contribution:
 
----
+1. **Private and on-device by design.** Generation, retrieval, tools, and persistence stay on the device. Do not add cloud inference, analytics, tracking, remote storage, or a network entitlement without an explicit project-level design decision.
+2. **Transparency is a product invariant.** Anything inserted into model context must be representable in the Context inspector and included exactly once in token accounting.
+3. **Framework first.** Decision logic belongs in `FoundationChatKit` behind protocol seams. The `Ember` target should remain a thin SwiftUI binding layer.
+4. **Graceful degradation.** The app must remain useful when Apple Intelligence, exact token counting, semantic embeddings, or optional EmbeddingGemma assets are unavailable.
+5. **Test-driven changes.** Add a failing test, implement the smallest behavior that passes, then refactor. Keep the app buildable at each commit.
+6. **Minimize dependencies.** New dependencies need a clear local-only purpose, license review, and an explanation of their binary and privacy impact.
 
 ## Prerequisites
 
-- **macOS 26 (Tahoe)** + **Xcode 26.x** (built against the 26.4 SDK).
-- **[Tuist](https://docs.tuist.dev)** — the `.xcodeproj`/`.xcworkspace` are generated and git-ignored.
-- To exercise the real on-device model: an Apple-Intelligence-capable device or an iOS 26 simulator with Apple Intelligence enabled. (Not required for the test suite.)
+- macOS 26 with Xcode 26.x and the iOS/macOS 26 SDK.
+- [Tuist](https://docs.tuist.dev).
+- Git.
+- An Apple Intelligence environment only for real-model verification; unit tests use mocks.
 
-## Getting started
+## Set up a development checkout
 
 ```bash
 git clone https://github.com/Vvlladd/Ember.git
 cd Ember
-tuist generate            # creates Ember.xcworkspace (regenerate after any file add/delete)
+tuist generate --no-open
 open Ember.xcworkspace
 ```
 
-> **Tuist resolves source globs at generation time.** Run `tuist generate --no-open` **after creating or deleting any source/test file** before you build or test, or the new file won't be in the module.
-
-## Build & test
-
-The framework test suite is the **primary gate** — all logic lives there:
+Tuist resolves source globs during generation. After adding or deleting a source or test file, run:
 
 ```bash
-# Framework unit tests (must print ** TEST SUCCEEDED **):
+tuist generate --no-open
+```
+
+Generated `.xcodeproj` and `.xcworkspace` files are intentionally gitignored and must not be committed.
+
+## Development workflow
+
+1. Fork the repository and create a focused branch from `main`.
+2. Reproduce the problem or agree on the proposed behavior.
+3. Add or update tests in `Targets/FoundationChatKit/Tests/` whenever logic changes.
+4. Implement the change behind the existing provider, session, embedder, or persistence seams.
+5. Regenerate the project if the file graph changed.
+6. Run the relevant tests and both app builds.
+7. Update README, architecture documentation, or specs when behavior or constraints change.
+8. Open a pull request describing what changed, why, and exactly how it was verified.
+
+## Build and test matrix
+
+The framework suite is the primary gate:
+
+```bash
 xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
   -destination 'platform=macOS' test 2>&1 | tail -40
+```
 
-# App builds (keep both green):
-xcodebuild -workspace Ember.xcworkspace -scheme Ember -destination 'platform=macOS' build 2>&1 | tail -10
+Keep both app targets green:
+
+```bash
+xcodebuild -workspace Ember.xcworkspace -scheme Ember \
+  -destination 'platform=macOS' build 2>&1 | tail -10
+
 xcodebuild -workspace Ember.xcworkspace -scheme Ember \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -10
 ```
 
-> **Editor diagnostics are unreliable here.** SourceKit shows false "No such module 'Testing'" / "cannot find type …" errors because there's no module graph in the editor. **Ground truth is the `xcodebuild` run** — trust it, not the squiggles.
+The expected test result is `** TEST SUCCEEDED **`.
 
-## Project layout
+> [!IMPORTANT]
+> SourceKit/editor diagnostics can report false missing-module or missing-type errors when the generated module graph is unavailable. `xcodebuild` is the source of truth.
 
-- `Targets/FoundationChatKit/` — framework: engine, model seam, tools, memory/RAG, budgeting, persistence, and **all tests** (`Sources/`, `Tests/`).
-- `Targets/Ember/` — SwiftUI app (views, `ErrorBanner`, inspector).
-- `docs/superpowers/{specs,plans}/` — one design spec + one task-by-task plan per phase, grounded in Apple docs.
-- `.claude/skills/` — reusable iOS/SwiftUI/Foundation-Models skills (also useful as house-style references).
+## Optional EmbeddingGemma verification
 
-## Conventions & hard-won gotchas
+The repository does not include model weights. A normal checkout builds and tests with the `NLEmbedding` fallback.
 
-- **SwiftData:** use an explicit `ConversationStore(context: ModelContext(container))` — *not* `@Query`/`.modelContainer` (cross-module `@Model` + `mainContext` traps on macOS 26.x). Share **one** `ModelContext` between `ConversationStore` and `MemoryStore`.
-- **Tools cost context.** Keep to **3–5 tools** with short `@Guide` descriptions; tool definitions are counted against the 4,096-token budget.
-- **Exact token counts are async-only** (`SystemLanguageModel.tokenCount(for:)` is `async throws`); the live/typing path uses the char estimator and refreshes to exact counts after a turn.
-- **Memory facts vs. messages:** durable curated `.note` facts are ranked above raw conversation snippets in retrieval (`search(preferNotes:)`). Prefer adding facts over indexing chatty messages.
-- **Diagnostics:** the `EmberLog` (`os.Logger`) layer logs user-derived text at `.public` for debugging. If you add logging, keep privacy in mind and don't ship verbose user-text logging un-gated.
+To exercise EmbeddingGemma locally, accept its separate license, authenticate with Hugging Face, and run `scripts/fetch_embeddinggemma.sh`. Assets are written to the gitignored `Targets/Ember/Resources/Models/` directory and must never be committed.
 
-## Commit & PR guidelines
+Run the real-model retrieval gate with:
 
-- **Commits:** imperative subject, focused scope, tests included. Use the project trailer:
-  ```
-  Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
-  ```
-  (only when an AI assistant co-authored the change).
-- **Before opening a PR:** `tuist generate` is clean, the framework test suite is **green**, and both app targets **build**.
-- **PR description:** what changed and why, how it was tested (paste the `TEST SUCCEEDED` tail), and any on-device verification. Reference the relevant spec/plan in `docs/superpowers/` when applicable.
-- For larger features, follow the spec → plan → TDD flow used across the repo (see existing docs for the shape).
+```bash
+TEST_RUNNER_EMBER_GEMMA_MODEL_DIR="$PWD/Targets/Ember/Resources/Models" \
+xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
+  -destination 'platform=macOS' test 2>&1 | tail -20
+```
 
-## Reporting issues
+If you change tokenizer configuration, role prefixes, vector dimensions, or embedding normalization, treat it as a new vector space and update the embedder identity plus migration coverage.
 
-Open a GitHub issue with: what you expected, what happened, repro steps, device/OS (e.g. *iOS 26.5 simulator*), and any relevant `EmberLog` output (filter: `subsystem == "com.ember.FoundationChatKit"`).
+## Code conventions
 
----
+- Follow Swift 6 concurrency rules and preserve actor isolation. `ConversationEngine`, `ChatCoordinator`, and persistence/memory orchestration are intentionally main-actor isolated.
+- Prefer small value types, protocol seams, dependency injection, and deterministic clocks/providers over global state.
+- Keep Foundation Models tool descriptions short: tool schemas consume context tokens.
+- Keep tool conformances pure and `Sendable`; route writes through the existing buffer/coordinator boundary.
+- Use one shared `ModelContext` for `ConversationStore` and `MemoryStore`. Do not replace this with cross-module `@Query` or `.modelContainer` wiring.
+- Update every exhaustive UI switch when adding an error or availability case.
+- Preserve the distinction between durable `MemoryNote` facts and raw message snippets.
+- Never compare vectors produced by different `embedderID` values.
 
-Happy hacking — and thanks for keeping Ember on-device, private, and transparent. 🔥
+## Privacy and logging
+
+Treat prompts, replies, memories, titles, and extracted facts as sensitive user data.
+
+- Do not add telemetry or upload logs.
+- Prefer metadata such as lengths, counts, and stable error categories over content.
+- Do not add new `privacy: .public` interpolation for user-derived strings.
+- Redact any log excerpt before posting it publicly.
+- If your work touches the existing verbose memory diagnostics, move it toward explicit debug gating or private/redacted interpolation.
+
+## Documentation and diagrams
+
+- Keep the checked-in Mermaid sources valid, regenerate their README PNG exports, and visually inspect the results; follow [`docs/diagrams/README.md`](docs/diagrams/README.md).
+- Update [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) when changing system boundaries or context-window behavior.
+- Keep public documentation factual about privacy, optional model assets, linked dependencies, and known limitations.
+- Add alt text for images and concise prose around diagrams so the documentation remains accessible.
+
+## Commits
+
+- Use an imperative, focused subject line.
+- Keep unrelated refactors out of feature commits.
+- Include tests with the behavior they protect.
+- If an AI assistant materially co-authored a commit, use the applicable co-author trailer and disclose the assistance in the pull request. Contributors remain responsible for understanding and reviewing all submitted code.
+
+## Pull request checklist
+
+- [ ] The change has a focused purpose and references an issue or design discussion when appropriate.
+- [ ] New behavior is covered by tests, or the PR explains why tests do not apply.
+- [ ] `tuist generate --no-open` was rerun after file additions or deletions.
+- [ ] The `FoundationChatKit` test suite succeeds.
+- [ ] The macOS app builds.
+- [ ] The iOS Simulator app builds.
+- [ ] Real-device/model behavior was verified when the change depends on it.
+- [ ] User-facing or architectural documentation was updated.
+- [ ] No generated project, model weights, private conversations, tokens, or unredacted logs are included.
+- [ ] New dependencies and assets have compatible licenses and documented privacy impact.
+
+## Reporting bugs and security issues
+
+For a normal bug, include expected behavior, actual behavior, reproduction steps, OS/device details, and a minimal redacted log excerpt when useful.
+
+For a vulnerability or privacy issue, avoid publishing exploit details or user data. Use GitHub's private vulnerability reporting when available, or contact the maintainer at `vlad@unpi.dev`.
+
+Thank you for keeping Ember private, transparent, and approachable. 🔥

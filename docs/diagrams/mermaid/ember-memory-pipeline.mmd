@@ -1,0 +1,31 @@
+flowchart TB
+    subgraph WRITE["Write path · after a completed turn"]
+        TURN["Completed user turn"] --> INDEX["Index user message"]
+        TURN --> EXTRACT["Extract grounded durable facts"]
+        SAVE["saveMemory tool"] --> DEDUP["Normalize + containment + cosine dedup"]
+        EXTRACT --> DEDUP
+    end
+
+    subgraph STORE["Local SwiftData memory"]
+        INDEX --> MSG[("Message snippets<br/>vector + embedderID")]
+        DEDUP --> NOTE[("Curated MemoryNotes<br/>vector + embedderID")]
+    end
+
+    subgraph EMBED["Swappable on-device embedder"]
+        GEMMA["EmbeddingGemma-300m<br/>Core ML · 256 dimensions"] --> SEAM["TextEmbedder protocol"]
+        NL["NLEmbedding fallback<br/>system framework"] --> SEAM
+        MIGRATE["Chunked vector migration"] --> MSG
+        MIGRATE --> NOTE
+    end
+
+    subgraph READ["Read path · before generation"]
+        QUERY["New prompt · query role"] --> SEAM
+        SEAM --> SEARCH["Hybrid search<br/>50% lexical + 50% semantic"]
+        MSG --> SEARCH
+        NOTE --> SEARCH
+        SEARCH --> RANK["Prefer facts · threshold · top 4"]
+        RANK --> COLLAPSE["Collapse near-duplicates<br/>inject up to 3 short hits"]
+        COLLAPSE --> BLOCK["Visible ⟦memory⟧ block"]
+        BLOCK --> MODEL["On-device generation"]
+        BLOCK --> VIEW["Context inspector + token meter"]
+    end

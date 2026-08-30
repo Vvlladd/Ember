@@ -1,0 +1,15 @@
+flowchart LR
+    subgraph DEVICE["Your Apple device · private execution boundary"]
+        U["You"] --> UI["Ember chat"]
+        UI --> RET["Hybrid memory retrieval"]
+        DB[("SwiftData<br/>messages + durable facts")] --> RET
+        RET --> MEM["Visible ⟦memory⟧ block"]
+        MEM --> CTX["Literal model context"]
+        UI --> CTX
+        TOOLS["On-device tools"] --> CTX
+        CTX --> FM["Apple Foundation Model"]
+        CTX --> INS["Context inspector"]
+        CTX --> TOK["Per-line token accounting"]
+        FM --> UI
+        LOCAL["No server · no API key · no network entitlement"]
+    end

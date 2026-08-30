@@ -1,0 +1,22 @@
+sequenceDiagram
+    autonumber
+    actor User
+    participant UI as Ember UI
+    participant Coordinator as ChatCoordinator
+    participant Engine as ConversationEngine
+    participant Memory as MemoryStore
+    participant Model as On-device model
+    participant Inspector as Context + Tokens
+
+    User->>UI: Send a message
+    UI->>Coordinator: send(text, conversation)
+    Coordinator->>Engine: performTurn(prompt)
+    Engine->>Memory: hybrid search over local snapshot
+    Memory-->>Engine: ranked notes + conversation snippets
+    Engine-->>Inspector: expose visible memory and projected budget
+    Engine->>Model: stream augmented prompt
+    Model-->>Engine: cumulative response snapshots
+    Engine-->>UI: update one growing response bubble
+    Engine-->>Inspector: refresh transcript and exact token counts
+    Coordinator->>Memory: index user turn + save deduplicated durable facts
+    Coordinator-->>UI: persist completed exchange in SwiftData

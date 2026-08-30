@@ -1,0 +1,31 @@
+flowchart TB
+    subgraph APP["Ember · SwiftUI app"]
+        ROOT["Availability gate"] --> SCENE["NavigationSplitView chat scene"]
+        SCENE --> CHAT["Conversation list + chat + composer"]
+        SCENE --> INSPECT["Context inspector + token meter"]
+    end
+
+    subgraph KIT["FoundationChatKit · framework"]
+        COORD["ChatCoordinator"] --> ENGINE["ConversationEngine"]
+        ENGINE --> PROVIDER["ChatModelProvider / ChatSessionHandle"]
+        ENGINE --> BUDGET["Budgeting + compaction"]
+        ENGINE --> TOOLBOX["Local tools"]
+        COORD --> RAG["MemoryStore + retrieval + extraction"]
+        COORD --> PERSIST["ConversationStore"]
+    end
+
+    subgraph REAL["Production adapters"]
+        PROVIDER --> FMODEL["FoundationModelProvider"]
+        RAG --> EMBEDDERS["EmbeddingGemma / NLEmbedding"]
+        PERSIST --> SWIFTDATA["SwiftData"]
+    end
+
+    subgraph TESTS["Deterministic tests"]
+        MOCKMODEL["MockModelProvider"] -. conforms to .-> PROVIDER
+        MOCKEMBED["MockEmbedder"] -. conforms to .-> RAG
+    end
+
+    CHAT --> COORD
+    INSPECT --> ENGINE
+    FMODEL --> APPLE["Apple Foundation Models"]
+    EMBEDDERS --> LOCALFW["Core ML + NaturalLanguage"]

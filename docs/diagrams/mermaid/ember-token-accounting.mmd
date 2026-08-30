@@ -1,0 +1,19 @@
+flowchart TB
+    INST["Instructions"] --> CALC["TokenBudgetCalculator"]
+    TOOLS2["Tool definitions"] --> CALC
+    MEMORY2["Retrieved memory"] --> CALC
+    HISTORY["Conversation history"] --> CALC
+    PROMPT["Current prompt / streaming reply"] --> CALC
+    RESERVE["512-token reply reserve"] --> CALC
+
+    EST["Synchronous character estimate<br/>live typing + streaming"] -.-> CALC
+    EXACT["SystemLanguageModel.tokenCount<br/>async exact refresh"] -.-> CALC
+
+    CALC --> BREAKDOWN["Visible line-by-line breakdown"]
+    CALC --> LIMIT{"Projected total exceeds<br/>model contextSize?"}
+    LIMIT -- no --> GENERATE["Retrieve · inject · generate"]
+    LIMIT -- yes --> COMPACT["Summarize older context<br/>keep recent entries verbatim"]
+    COMPACT --> REBUILD["Create a fresh session<br/>restore tools + recap + recent tail"]
+    REBUILD --> CALC
+    GENERATE --> REFRESH["Persist turn + refresh exact budget"]
+    REFRESH --> BREAKDOWN
