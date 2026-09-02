@@ -3695,7 +3695,10 @@ struct EmberScopeFacadeTests {
         #expect(restored.label == "restored")
         let wrapped = LanguageModelSession(instructions: "x").inspected(label: "wrapped")
         #expect(wrapped.label == "wrapped")
-        #expect(EmberScope.recorder.snapshot().allSatisfy { $0.sessionID != nil || { if case .modelStatus = $0.payload { return true } else { return false } }() })
+        #expect(EmberScope.recorder.snapshot().allSatisfy { event in   // named parameter: a nested closure would shadow $0
+            if case .modelStatus = event.payload { return true }
+            return event.sessionID != nil
+        })
     }
 
     @Test func notesStopAndClear() {
