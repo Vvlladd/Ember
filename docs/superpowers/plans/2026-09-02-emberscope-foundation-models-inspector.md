@@ -3803,6 +3803,8 @@ public enum EmberScope {
 
     public static var configuration: ScopeConfiguration { recorder.configuration }
     public static var isRecording: Bool { recorder.isRecording }
+    /// Enabled AND recording — the gate for anything user-visible (shake, buttons).
+    public static var isActive: Bool { recorder.isActive }
 
     /// The single OSLog sink: installed once, reconfigured on every `start()` (disabled when `logToOSLog` is off).
     static let osLogSink = OSLogSink(logContent: false, isEnabled: false)
@@ -5126,6 +5128,7 @@ struct TimelineRow: View {
         let icon = ScopeStyle.icon(for: event.payload)
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon.name).foregroundStyle(icon.color).frame(width: 20)
+                .accessibilityHidden(true)   // the title carries the meaning
             VStack(alignment: .leading, spacing: 2) {
                 Text(ScopeStyle.title(for: event.payload)).font(.callout)
                 if let subtitle = ScopeStyle.subtitle(for: event.payload) {
@@ -5300,15 +5303,18 @@ struct ToolRegistryDetail: View {
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Rendering happens inside the transfer representation (on share), never in a view `body`.
 struct ScopeMarkdownExport: Transferable {
-    let text: String
-    static var transferRepresentation: some TransferRepresentation { ProxyRepresentation(exporting: \.text) }
+    let archive: ScopeArchive
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(exporting: { ScopeExport.markdown($0.archive) })
+    }
 }
 
 struct ScopeJSONExport: Transferable {
-    let data: Data
+    let archive: ScopeArchive
     static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(exportedContentType: .json) { $0.data }
+        DataRepresentation(exportedContentType: .json) { try ScopeExport.json($0.archive) }
     }
 }
 
@@ -5318,14 +5324,11 @@ struct ExportMenu: View {
 
     var body: some View {
         Menu {
-            ShareLink(item: ScopeMarkdownExport(text: ScopeExport.markdown(archive)),
-                      preview: SharePreview("EmberScope report.md")) {
+            ShareLink(item: ScopeMarkdownExport(archive: archive), preview: SharePreview("EmberScope report.md")) {
                 Label("Share Markdown report", systemImage: "doc.richtext")
             }
-            if let data = try? ScopeExport.json(archive) {
-                ShareLink(item: ScopeJSONExport(data: data), preview: SharePreview("EmberScope export.json")) {
-                    Label("Share JSON archive", systemImage: "curlybraces")
-                }
+            ShareLink(item: ScopeJSONExport(archive: archive), preview: SharePreview("EmberScope export.json")) {
+                Label("Share JSON archive", systemImage: "curlybraces")
             }
             Button { ScopeClipboard.copy(ScopeExport.markdown(archive)) } label: { Label("Copy Markdown", systemImage: "doc.on.doc") }
         } label: {
@@ -5337,6 +5340,7 @@ struct ExportMenu: View {
 /// Record / clear / export / done — applied to every tab's root.
 struct ScopeToolbar: ViewModifier {
     let store: ScopeStore
+    @Environment(\.dismiss) private var dismiss
     func body(content: Content) -> some View {
         content.toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -5351,7 +5355,7 @@ struct ScopeToolbar: ViewModifier {
                 ExportMenu(store: store)
             }
             ToolbarItem(placement: .cancellationAction) {
-                Button("Done") { store.isPresented = false }
+                Button("Done") { dismiss() }   // sheet AND dedicated macOS window
             }
         }
     }
@@ -5389,7 +5393,7 @@ struct EmberScopeModifier: ViewModifier {
             }
         #if canImport(UIKit)
             .onReceive(NotificationCenter.default.publisher(for: .emberScopeShake)) { _ in
-                if EmberScope.isRecording { store.isPresented = true }
+                if EmberScope.isActive { store.isPresented = true }   // enabled AND recording — never in a disabled release build
             }
         #endif
     }
