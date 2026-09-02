@@ -24,22 +24,24 @@ public enum EmberScope {
     public static var configuration: ScopeConfiguration { recorder.configuration }
     public static var isRecording: Bool { recorder.isRecording }
 
+    /// The single OSLog sink: installed once, reconfigured on every `start()` (disabled when `logToOSLog` is off).
+    static let osLogSink = OSLogSink(logContent: false, isEnabled: false)
     private static let osLogSinkInstalls = Mutex(0)
     static func osLogSinkInstallCount() -> Int { osLogSinkInstalls.withLock { $0 } }
 
-    /// Start recording. Idempotent. Captures the model status and (once) installs the OSLog sink.
+    /// Start recording. Idempotent: a later call replaces the configuration (including the OSLog sink's
+    /// enablement and content privacy), re-captures the model status and refreshes the store.
     public static func start(configuration: ScopeConfiguration = ScopeConfiguration(),
                              model: SystemLanguageModel = .default) {
         recorder.update(configuration: configuration)
         recorder.setRecording(true)
-        if configuration.logToOSLog {
-            let installNow = osLogSinkInstalls.withLock { count -> Bool in
-                guard count == 0 else { return false }
-                count += 1
-                return true
-            }
-            if installNow { recorder.addSink(OSLogSink(logContent: configuration.logContent)) }
+        osLogSink.update(isEnabled: configuration.logToOSLog, logContent: configuration.logContent)
+        let installNow = osLogSinkInstalls.withLock { count -> Bool in
+            guard count == 0 else { return false }
+            count += 1
+            return true
         }
+        if installNow { recorder.addSink(osLogSink) }
         refreshModelStatus(model)
         Task { @MainActor in store.refresh() }
     }

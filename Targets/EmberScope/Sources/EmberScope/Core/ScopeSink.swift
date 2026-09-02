@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Synchronization
 
 /// Receives every recorded event synchronously (outside the recorder's lock). Must be cheap and thread-safe.
 public protocol ScopeSink: Sendable {
@@ -13,7 +14,7 @@ enum ScopeDiagnostics {
 
 /// Unified-logging sink. Metadata only by default; content is interpolated `.private` unless `logContent`.
 /// Filter: `log stream --predicate 'subsystem == "dev.emberscope"' --info --debug`
-public struct OSLogSink: ScopeSink {
+public final class OSLogSink: ScopeSink {
     public static let subsystem = "dev.emberscope"
     private let session = Logger(subsystem: OSLogSink.subsystem, category: "Session")
     private let request = Logger(subsystem: OSLogSink.subsystem, category: "Request")
@@ -21,32 +22,46 @@ public struct OSLogSink: ScopeSink {
     private let error = Logger(subsystem: OSLogSink.subsystem, category: "Error")
     private let tokens = Logger(subsystem: OSLogSink.subsystem, category: "Tokens")
     private let model = Logger(subsystem: OSLogSink.subsystem, category: "Model")
-    private let logContent: Bool
+    private struct Settings: Sendable { var isEnabled: Bool; var logContent: Bool }
+    private let settings: Mutex<Settings>
 
-    public init(logContent: Bool = false) { self.logContent = logContent }
+    public init(logContent: Bool = false, isEnabled: Bool = true) {
+        settings = Mutex(Settings(isEnabled: isEnabled, logContent: logContent))
+    }
+
+    /// Live reconfiguration — `EmberScope.start()` calls this on EVERY start, so a second start with a
+    /// changed configuration takes effect on the already-installed sink (Task 11 review ruling).
+    public func update(isEnabled: Bool, logContent: Bool) {
+        settings.withLock { $0 = Settings(isEnabled: isEnabled, logContent: logContent) }
+    }
+    public var isEnabled: Bool { settings.withLock { $0.isEnabled } }
+    public var logsContent: Bool { settings.withLock { $0.logContent } }
 
     public func receive(_ event: ScopeEvent) {
+        let current = settings.withLock { $0 }
+        guard current.isEnabled else { return }
+        let logContent = current.logContent
         let sid = event.sessionID.map { String($0.uuidString.prefix(8)) } ?? "-"
         switch event.payload {
         case .sessionCreated(let info):
             session.info("[\(sid, privacy: .public)] created label=\(info.label, privacy: .public) tools=\(info.tools.count) contextSize=\(info.contextSize) restored=\(info.restoredFromTranscript)")
-            content(session, "instructions", info.instructions)
+            content(session, "instructions", info.instructions, logContent: logContent)
         case .prewarm:
             session.debug("[\(sid, privacy: .public)] prewarm")
         case .requestStarted(let r):
             request.info("[\(sid, privacy: .public)] \(r.kind.rawValue, privacy: .public) start id=\(r.requestID.uuidString.prefix(8), privacy: .public) promptChars=\(r.prompt?.count ?? -1) format=\(r.responseFormat ?? "text", privacy: .public) temp=\(r.options.temperature ?? -1) maxTokens=\(r.options.maximumResponseTokens ?? -1) sampling=\(r.options.samplingDescription, privacy: .public)")
-            content(request, "prompt", r.prompt)
+            content(request, "prompt", r.prompt, logContent: logContent)
         case .streamProgress(let p):
             request.debug("[\(sid, privacy: .public)] progress id=\(p.requestID.uuidString.prefix(8), privacy: .public) chunks=\(p.chunkCount) chars=\(p.contentChars)")
         case .requestFinished(let e):
             request.info("[\(sid, privacy: .public)] finished id=\(e.requestID.uuidString.prefix(8), privacy: .public) status=\(String(describing: e.status), privacy: .public) duration=\(String(describing: e.duration), privacy: .public) ttft=\(e.timeToFirstToken.map { String(describing: $0) } ?? "-", privacy: .public) chunks=\(e.chunkCount) outputChars=\(e.outputChars) appended=\(e.appendedEntryCount)")
-            content(request, "output", e.output)
+            content(request, "output", e.output, logContent: logContent)
         case .toolCallStarted(let t):
             tool.info("[\(sid, privacy: .public)] call \(t.toolName, privacy: .public) id=\(t.callID.uuidString.prefix(8), privacy: .public) argChars=\(t.arguments.count)")
-            content(tool, "arguments", t.arguments)
+            content(tool, "arguments", t.arguments, logContent: logContent)
         case .toolCallFinished(let t):
             tool.info("[\(sid, privacy: .public)] \(t.toolName, privacy: .public) \(String(describing: t.status), privacy: .public) duration=\(String(describing: t.duration), privacy: .public) outputChars=\(t.output?.count ?? 0)")
-            content(tool, "output", t.output)
+            content(tool, "output", t.output, logContent: logContent)
         case .error(let e):
             // kind / retryable / tool / chain are structured metadata; message + debugDescription can quote
             // prompt text (see ScopeRedaction), so they follow the logContent gate like every content field.
@@ -70,7 +85,7 @@ public struct OSLogSink: ScopeSink {
     }
 
     /// User-derived content: `.private` unless the developer opted into `logContent`.
-    private func content(_ logger: Logger, _ label: String, _ text: String?) {
+    private func content(_ logger: Logger, _ label: String, _ text: String?, logContent: Bool) {
         guard let text else { return }
         if logContent {
             logger.debug("\(label, privacy: .public): \(text, privacy: .public)")

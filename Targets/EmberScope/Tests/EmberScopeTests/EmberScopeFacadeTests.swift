@@ -74,6 +74,17 @@ struct EmberScopeFacadeTests {
         #expect(EmberScope.osLogSinkInstallCount() == 1)
     }
 
+    /// Ruling (Task 11 review): a second start() must reconfigure the already-installed sink.
+    @Test func secondStartReconfiguresTheOSLogSink() {
+        defer { reset() }
+        EmberScope.start(configuration: ScopeConfiguration(isEnabled: true, logToOSLog: true, logContent: true))
+        #expect(EmberScope.osLogSink.isEnabled && EmberScope.osLogSink.logsContent)
+        EmberScope.start(configuration: ScopeConfiguration(isEnabled: true, logToOSLog: false))
+        #expect(!EmberScope.osLogSink.isEnabled && !EmberScope.osLogSink.logsContent)
+        #expect(EmberScope.configuration.logToOSLog == false)
+        #expect(EmberScope.osLogSinkInstallCount() == 1)
+    }
+
     @Test @MainActor func presentAndDismissToggleTheStore() {
         EmberScope.present()
         #expect(EmberScope.store.isPresented)
