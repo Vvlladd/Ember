@@ -5409,7 +5409,8 @@ public struct EmberScopeCommands: Commands {
 
     public var body: some Commands {
         CommandMenu("Debug") {
-            Button("Ember Scope") { action() }
+            // Defense in depth: even a host that forgot #if DEBUG never opens a disabled inspector.
+            Button("Ember Scope") { if EmberScope.isActive { action() } }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
         }
     }
@@ -5700,8 +5701,9 @@ final class FoundationModelSession: ChatSessionHandle {
         // in the retry branch, before `continue`:
         EmberScope.note("retrying after transient error: \(String(describing: chatError))", session: session.inspectionID)
 
-        // in compactIfNeeded, before `session = provider.makeSession(...seeding: condensed)`:
-        EmberScope.note("compaction (proactive): \(session.contextEntries.count) entries → \(condensed.count) seeded entries",
+        // in compactIfNeeded: capture `let before = session.contextEntries` ONCE, pass it to compact(...),
+        // and use `before.count` in the note (contextEntries re-maps the whole transcript on every read):
+        EmberScope.note("compaction (proactive): \(before.count) entries → \(condensed.count) seeded entries",
                         session: session.inspectionID)
 
         // in recoverFromOverflow, before the session swap:
@@ -5728,8 +5730,9 @@ import FoundationChatKit
 import EmberScope
 import os
 
-/// macOS: the inspector lives in its own window instead of a sheet.
-private let emberScopeWindowID = "emberscope"
+/// macOS: the inspector lives in its own window (opened by the toolbar button and ⌘⇧E); the sheet
+/// is the iOS presentation. Shared with ChatScene / UnavailableView, so keep it internal.
+let emberScopeWindowID = "emberscope"
 
 @main
 struct EmberApp: App {
@@ -5746,11 +5749,17 @@ struct EmberApp: App {
         // … existing container / store / memory / coordinator setup unchanged …
     }
 
+    // Every EmberScope surface is DEBUG-only (Task 15 review ruling): a Release build of Ember has no
+    // sheet, no "Debug ▸ Ember Scope" menu / ⌘⇧E, and no inspector window — the library is inert there.
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            RootView(coordinator: coordinator).emberScope()
+            #else
             RootView(coordinator: coordinator)
-                .emberScope()
+            #endif
         }
+        #if DEBUG
         .commands {
             #if os(macOS)
             EmberScopeCommands { openWindow(id: emberScopeWindowID) }
@@ -5758,7 +5767,8 @@ struct EmberApp: App {
             EmberScopeCommands()
             #endif
         }
-        #if os(macOS)
+        #endif
+        #if DEBUG && os(macOS)
         Window("Ember Scope", id: emberScopeWindowID) {
             EmberScopeView()
         }
@@ -5785,18 +5795,18 @@ and:
 ```swift
     private func openScope() {
         #if os(macOS)
-        openWindow(id: "emberscope")
+        openWindow(id: emberScopeWindowID)
         #else
         EmberScope.present()
         #endif
     }
 ```
 
-`UnavailableView.swift` — `import EmberScope`; in `actions:` add:
+`UnavailableView.swift` — `import EmberScope`; add `#if os(macOS) @Environment(\.openWindow) private var openWindow #endif` and the same platform branch as `ChatScene.openScope()` (window on macOS, sheet on iOS); in `actions:` add:
 
 ```swift
             #if DEBUG
-            Button("Open Ember Scope") { EmberScope.present() }
+            Button("Open Ember Scope") { openScope() }
             #endif
 ```
 
