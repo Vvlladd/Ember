@@ -51,10 +51,13 @@ public enum ScopeErrorClassifier {
         }
 
         if let generation = error as? LanguageModelSession.GenerationError {
-            let (kind, context) = kindAndContext(of: generation)
+            let mapped = kindAndContext(of: generation)
+            // An unmapped (future) case can still wrap a known transient / asset failure — same as the
+            // `default:` arm of Ember's FoundationModelProvider.map.
+            let kind = mapped.kind == .unknown ? heuristicKind(for: error, chain: chain) : mapped.kind
             return ScopeErrorRecord(kind: kind, requestID: requestID, toolCallID: toolCallID, toolName: toolName,
                                     message: generation.errorDescription ?? String(describing: generation),
-                                    debugDescription: context?.debugDescription,
+                                    debugDescription: mapped.context?.debugDescription,
                                     recoverySuggestion: generation.recoverySuggestion,
                                     failureReason: generation.failureReason,
                                     underlyingChain: chain, isRetryable: kind.isRetryable)
@@ -62,15 +65,7 @@ public enum ScopeErrorClassifier {
 
         // NSError-shaped failures that do not bridge to a GenerationError case.
         let ns = error as NSError
-        let kind: ScopeErrorRecord.Kind
-        if isTransientGenerationFailure(error) {
-            kind = .transientGeneration
-        } else if chain.contains(where: { $0.hasPrefix("ModelManagerServices.ModelManagerError") })
-                    || ns.domain.hasPrefix("ModelManagerServices.ModelManagerError") {
-            kind = .assetsUnavailable
-        } else {
-            kind = .unknown
-        }
+        let kind = heuristicKind(for: error, chain: chain)
         let localized = (error as? LocalizedError)
         return ScopeErrorRecord(kind: kind, requestID: requestID, toolCallID: toolCallID, toolName: toolName,
                                 message: localized?.errorDescription ?? "\(ns.domain) (\(ns.code))",
@@ -80,8 +75,19 @@ public enum ScopeErrorClassifier {
                                 underlyingChain: chain, isRetryable: kind.isRetryable)
     }
 
+    /// Domain heuristics for errors that are not (or not yet) a mapped `GenerationError` case.
+    private static func heuristicKind(for error: any Error, chain: [String]) -> ScopeErrorRecord.Kind {
+        if isTransientGenerationFailure(error) { return .transientGeneration }
+        let domain = (error as NSError).domain
+        if domain == "ModelManagerServices.ModelManagerError"
+            || chain.contains(where: { $0.hasPrefix("ModelManagerServices.ModelManagerError(") }) {
+            return .assetsUnavailable
+        }
+        return .unknown
+    }
+
     private static func kindAndContext(of error: LanguageModelSession.GenerationError)
-        -> (ScopeErrorRecord.Kind, LanguageModelSession.GenerationError.Context?) {
+        -> (kind: ScopeErrorRecord.Kind, context: LanguageModelSession.GenerationError.Context?) {
         switch error {
         case .exceededContextWindowSize(let c): return (.exceededContextWindowSize, c)
         case .assetsUnavailable(let c): return (.assetsUnavailable, c)
@@ -97,7 +103,8 @@ public enum ScopeErrorClassifier {
     }
 
     /// `com.apple.tokengeneration` anywhere in the error or its underlying chain — the intermittent
-    /// on-device runtime hiccup that is worth one retry (same heuristic Ember ships).
+    /// on-device runtime hiccup that is worth one retry. Mirrors FoundationChatKit's
+    /// `FoundationModelProvider.map`, applied here to both the enum-typed and the NSError-typed shapes.
     public static func isTransientGenerationFailure(_ error: any Error) -> Bool {
         let ns = error as NSError
         if ns.domain == "com.apple.tokengeneration" { return true }

@@ -68,6 +68,9 @@ struct ScopeErrorClassifierTests {
         let record = ScopeErrorClassifier.classify(wrapper)
         #expect(record.kind == .assetsUnavailable)
         #expect(record.underlyingChain == ["ModelManagerServices.ModelManagerError(1026)"])
+        // Own-domain form, and a look-alike domain must NOT match.
+        #expect(ScopeErrorClassifier.classify(mm).kind == .assetsUnavailable)
+        #expect(ScopeErrorClassifier.classify(NSError(domain: "ModelManagerServices.ModelManagerErrorX", code: 1)).kind == .unknown)
     }
 
     @Test func unknownErrorsPassThroughWithDescription() {
