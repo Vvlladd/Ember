@@ -58,6 +58,28 @@ let project = Project(
             dependencies: [.target(name: "FoundationChatKit")]
         ),
         .target(
+            name: "EmberScope",
+            destinations: appDestinations,
+            product: .framework,
+            bundleId: "dev.iosunpi.emberscope",
+            deploymentTargets: deployment,
+            sources: ["Targets/EmberScope/Sources/**"],
+            settings: .settings(base: [
+                // Keep the library adoptable by Swift-6-strict hosts even though this repo builds in
+                // Swift 5 language mode (warnings here, errors there).
+                "SWIFT_STRICT_CONCURRENCY": "complete",
+            ])
+        ),
+        .target(
+            name: "EmberScopeTests",
+            destinations: appDestinations,
+            product: .unitTests,
+            bundleId: "dev.iosunpi.emberscope.tests",
+            deploymentTargets: deployment,
+            sources: ["Targets/EmberScope/Tests/**"],
+            dependencies: [.target(name: "EmberScope")]
+        ),
+        .target(
             name: "Ember",
             destinations: appDestinations,
             product: .app,
