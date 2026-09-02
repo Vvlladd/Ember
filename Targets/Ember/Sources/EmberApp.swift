@@ -4,8 +4,9 @@ import FoundationChatKit
 import EmberScope
 import os
 
-/// macOS: the inspector lives in its own window instead of a sheet.
-private let emberScopeWindowID = "emberscope"
+/// macOS: the inspector lives in its own window (opened by the toolbar button and ⌘⇧E); the sheet
+/// is the iOS presentation. Shared with ChatScene / UnavailableView, so keep it internal.
+let emberScopeWindowID = "emberscope"
 
 @main
 struct EmberApp: App {
@@ -32,11 +33,17 @@ struct EmberApp: App {
                                                            store: store, memory: memory))
     }
 
+    // Every EmberScope surface is DEBUG-only (Task 15 review ruling): a Release build of Ember has no
+    // sheet, no "Debug ▸ Ember Scope" menu / ⌘⇧E, and no inspector window — the library is inert there.
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            RootView(coordinator: coordinator).emberScope()
+            #else
             RootView(coordinator: coordinator)
-                .emberScope()
+            #endif
         }
+        #if DEBUG
         .commands {
             #if os(macOS)
             EmberScopeCommands { openWindow(id: emberScopeWindowID) }
@@ -44,7 +51,8 @@ struct EmberApp: App {
             EmberScopeCommands()
             #endif
         }
-        #if os(macOS)
+        #endif
+        #if DEBUG && os(macOS)
         Window("Ember Scope", id: emberScopeWindowID) {
             EmberScopeView()
         }

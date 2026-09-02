@@ -38,7 +38,8 @@ public struct EmberScopeCommands: Commands {
 
     public var body: some Commands {
         CommandMenu("Debug") {
-            Button("Ember Scope") { action() }
+            // Defense in depth: even a host that forgot #if DEBUG never opens a disabled inspector.
+            Button("Ember Scope") { if EmberScope.isActive { action() } }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
         }
     }
