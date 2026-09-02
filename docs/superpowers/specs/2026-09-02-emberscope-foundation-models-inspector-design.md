@@ -25,7 +25,7 @@ Foundation Models traffic is invisible: there is no network to sniff (the model 
 | Decision | Choice | Why |
 |---|---|---|
 | Name | **EmberScope** (module and facade) | Self-explanatory ("scope" = inspection instrument), extends the Ember brand, no known collision. Renaming is a one-module change. |
-| Packaging | New Tuist framework target `EmberScope` + `EmberScopeTests` in this repo, laid out as an SPM package (`Targets/EmberScope/{Package.swift,Sources,Tests,README.md}`) | Consistent with the repo's build; the directory is extractable to its own repo unchanged. `swift build` inside it is a secondary check. |
+| Packaging | New Tuist framework target `EmberScope` + `EmberScopeTests` in this repo, laid out as an SPM package (`Targets/EmberScope/{Sources,Tests,README.md}`); the `Package.swift` for extraction lives in the README, **not** in the repo | Consistent with the repo's build; the directory is extractable to its own repo unchanged. Tuist treats any nested `Package.swift` as a project manifest, so it cannot be checked in. |
 | Dependency direction | `EmberScope` depends only on `FoundationModels`, `SwiftUI`, `os`, `Synchronization`. `FoundationChatKit` and `Ember` depend on `EmberScope`. | The library must be host-agnostic. Ember's provider is the natural integration point. |
 | Interception | **Wrappers**: `InspectedSession` (owns a `LanguageModelSession`, mirrors its API) and `InspectedTool<Base: Tool>` (forwards `Tool`). Factory `EmberScope.session(...)` and sugar `.inspected()`. | `LanguageModelSession` is `final` and Swift has no swizzling; a mirror-API wrapper is the only faithful, safe hook. Tools passed to the factory are wrapped automatically. |
 | Recording | Lock-protected `ScopeRecorder` (`Mutex`, monotonic sequence numbers, ring buffer of events, pluggable sinks) feeding a `@MainActor @Observable ScopeStore` that folds events into session records | Synchronous, ordered, testable without async; the UI observes the store. |
@@ -186,7 +186,7 @@ Options are captured as plain values: `temperature`, `maximumResponseTokens`, an
 ### 5. `InspectedSession`, `InspectedResponseStream`, `RequestObserver`
 
 ```swift
-public final class InspectedSession: @unchecked Sendable {   // same isolation story as the SDK class
+public final class InspectedSession: Sendable {   // every stored property is Sendable; the SDK class is @unchecked Sendable
     public let id: UUID; public let label: String
     public let base: LanguageModelSession                      // escape hatch
     public var transcript: Transcript { base.transcript }
@@ -243,9 +243,9 @@ public struct TranscriptSnapshot: Sendable, Codable, Equatable, Identifiable {
     public let id: UUID; public let sessionID: UUID; public let takenAt: Date
     public let contextSize: Int
     public var entries: [ScopeEntry]                 // mirrors Transcript order
-    public var toolsTokens: Int?                     // exact cost of tool definitions (26.4+) — the schema text the model sees
+    public var toolsTokens: Int?                     // cost of the tool definitions (estimated, exact on 26.4+) — informational, already inside the instructions entry
     public var isExact: Bool                         // true once every entry has an exact count
-    public var usedTokens: Int { entries.map(\.tokens).reduce(0,+) + (toolsTokens ?? 0) }
+    public var usedTokens: Int { entries.map(\.tokens).reduce(0,+) }   // tool definitions are counted inside the instructions entry; toolsTokens is informational
     public var remainingTokens: Int { max(0, contextSize - usedTokens) }
     public func tokens(by kind: ScopeEntry.Kind) -> Int
 }
@@ -347,7 +347,7 @@ The inspector must never change host behavior: every recording call is wrapped s
 
 ## Concurrency model
 
-`ScopeRecorder` is the only shared mutable state on the hot path; it is `Sendable` and lock-protected (`Synchronization.Mutex`). Sinks are called outside the lock. `ScopeStore` is `@MainActor @Observable` and refreshed by a coalesced `Task { @MainActor in … }`. `InspectedSession` is `@unchecked Sendable` like the SDK class and holds no mutable state of its own; async methods are nonisolated and run on the caller's context. Exact token counting runs in a detached `.utility` task and records a follow-up event rather than mutating shared records. Code is written to be Swift-6-strict-clean (Sendable payloads, no static vars) even though the targets build in Swift 5 language mode today.
+`ScopeRecorder` is the only shared mutable state on the hot path; it is `Sendable` and lock-protected (`Synchronization.Mutex`). Sinks are called outside the lock. `ScopeStore` is `@MainActor @Observable` and refreshed by a coalesced `Task { @MainActor in … }`. `InspectedSession` is `Sendable` (only immutable Sendable stored properties) and holds no mutable state of its own; async methods are nonisolated and run on the caller's context. Exact token counting runs in a detached `.utility` task and records a follow-up event rather than mutating shared records. Code is written to be Swift-6-strict-clean (Sendable payloads, no static vars) even though the targets build in Swift 5 language mode today.
 
 ## Privacy
 
@@ -373,7 +373,7 @@ TDD, Swift Testing, `EmberScopeTests` on macOS without Apple Intelligence:
 
 ```
 Targets/EmberScope/
-  Package.swift                 standalone SPM manifest (macOS 26 / iOS 26), same Sources/Tests
+  (no Package.swift in-repo: Tuist would treat it as a project manifest — the README carries it verbatim for extraction)
   README.md                     install, screenshots, API tour, privacy notes, FAQ
   Sources/EmberScope/
     Core/     EmberScope.swift · ScopeConfiguration · ScopeEvent(+payloads) · ScopeRecorder · ScopeSink/OSLogSink
@@ -385,7 +385,7 @@ Targets/EmberScope/
   Tests/EmberScopeTests/        one file per Core type + fixtures
 ```
 
-Tuist targets `EmberScope` (framework, bundle id `dev.iosunpi.emberscope`) and `EmberScopeTests`; the same files are declared by `Package.swift` so the folder can be published as its own package later without edits. The root README gains an "EmberScope" section; `CLAUDE.md`, `docs/ARCHITECTURE.md` and the diagrams index are updated (Mermaid source inline; no new PNG pipeline run).
+Tuist targets `EmberScope` (framework, bundle id `dev.iosunpi.emberscope`) and `EmberScopeTests`; the folder keeps the SPM `Sources/`/`Tests/` shape so it can be published as its own package later by adding the manifest printed in its README. The root README gains an "EmberScope" section; `CLAUDE.md`, `docs/ARCHITECTURE.md` and the diagrams index are updated (Mermaid source inline; no new PNG pipeline run).
 
 ## Out of scope
 
