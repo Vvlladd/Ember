@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import os
 
 /// Seam over `SystemLanguageModel.tokenCount(for:)` so exact accounting is testable without a model.
 public protocol TokenCounting: Sendable {
@@ -56,7 +57,9 @@ public struct TokenCountResolver: Sendable {
                                                              toolsTokens: toolsTokens)),
                             sessionID: snapshot.sessionID)
         } catch {
-            ScopeDiagnostics.log.debug("exact token counting unavailable — keeping estimates: \(String(describing: error), privacy: .public)")
+            // Structured metadata only (domain/code): the diagnostics channel never carries free-form text.
+            let ns = error as NSError
+            ScopeDiagnostics.log.debug("exact token counting unavailable — keeping estimates: \(ns.domain, privacy: .public)(\(ns.code))")
         }
     }
 }
