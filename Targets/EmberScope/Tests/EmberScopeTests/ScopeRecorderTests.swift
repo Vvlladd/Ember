@@ -100,6 +100,8 @@ struct ScopeRecorderTests {
         sink.receive(Fixtures.event(.requestFinished(Fixtures.requestEnd)))
         sink.receive(Fixtures.event(.error(Fixtures.errorRecord)))
         sink.receive(Fixtures.event(.note("n")))
+        // Default sink (logContent: false) so the error path's .private branch runs too.
+        OSLogSink().receive(Fixtures.event(.error(Fixtures.errorRecord)))
         #expect(OSLogSink.subsystem == "dev.emberscope")
     }
 }
