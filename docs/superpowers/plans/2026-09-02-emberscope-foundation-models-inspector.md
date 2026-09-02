@@ -5060,6 +5060,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Consumes: everything from Task 13, `ScopeExport`, `ScopeArchive`.
 - Produces: `TimelineView`, `EventDetailView`, `ErrorsView`, `ErrorDetailView`, `ToolsView`, `ToolRegistryDetail`, `ExportMenu`, `ScopeToolbar` (view modifier: record toggle · clear · export · Done), `public extension View { func emberScope() -> some View }`, `public struct EmberScopeCommands: Commands { init(action: @escaping @MainActor () -> Void = { EmberScope.present() }) }`, `public extension Notification.Name { static let emberScopeShake }` (iOS), and the `UIWindow.motionEnded` shake hook (iOS only).
 - Test: none beyond the build gates (no UI snapshot tests exist in this repo); add `#Preview`s to every new screen.
+- Carried polish from the Task 13 review (controller ruling — do these in this task, they touch Task 13 files):
+  1. `ContextWindowBar.swift`: normalize segment widths by `max(snapshot.contextSize, snapshot.usedTokens)` so an over-budget snapshot never paints past the track, and tint the used/size caption red when `usedTokens > contextSize`.
+  2. Accessibility labels on icon-only status: `RequestStatusIcon` → "Succeeded" / "Failed" / "Cancelled" / "In flight"; the failure glyph and `ProgressView`s in `ToolCallRow` and `SessionRow` → "Failed" / "Running".
+  3. `.textSelection(.enabled)` on the detail `List`s (`TranscriptEntryDetail`, `RequestDetail`, `ToolCallDetail`, `SessionDetailView`) so identifiers, notes and status values are copyable.
 
 - [ ] **Step 1: Implement**
 
