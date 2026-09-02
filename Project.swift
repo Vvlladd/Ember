@@ -46,7 +46,7 @@ let project = Project(
             // swift-transformers vends a single umbrella `Transformers` library product, so the
             // narrower `.external(name: "Tokenizers")` does not resolve — Tuist matches externals by
             // product name. Only the tokenizer is used; see README for the dormant-Hub caveat.
-            dependencies: [.external(name: "Transformers")]
+            dependencies: [.external(name: "Transformers"), .target(name: "EmberScope")]
         ),
         .target(
             name: "FoundationChatKitTests",
@@ -55,7 +55,8 @@ let project = Project(
             bundleId: "dev.iosunpi.ember.kit.tests",
             deploymentTargets: deployment,
             sources: ["Targets/FoundationChatKit/Tests/**"],
-            dependencies: [.target(name: "FoundationChatKit")]
+            // The EmberScope integration test imports EmberScope directly.
+            dependencies: [.target(name: "FoundationChatKit"), .target(name: "EmberScope")]
         ),
         .target(
             name: "EmberScope",
@@ -94,7 +95,7 @@ let project = Project(
             ]),
             sources: ["Targets/Ember/Sources/**"],
             resources: emberResources,
-            dependencies: [.target(name: "FoundationChatKit")]
+            dependencies: [.target(name: "FoundationChatKit"), .target(name: "EmberScope")]
         ),
         .target(
             name: "EmberTests",

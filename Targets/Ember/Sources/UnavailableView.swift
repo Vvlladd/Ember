@@ -1,5 +1,6 @@
 import SwiftUI
 import FoundationChatKit
+import EmberScope
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -20,6 +21,9 @@ struct UnavailableView: View {
             if reason == .modelNotReady, let retry {
                 Button("Retry", action: retry)
             }
+            #if DEBUG
+            Button("Open Ember Scope") { EmberScope.present() }
+            #endif
         }
         .padding()
     }

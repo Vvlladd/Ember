@@ -1,13 +1,24 @@
 import SwiftUI
 import SwiftData
 import FoundationChatKit
+import EmberScope
 import os
+
+/// macOS: the inspector lives in its own window instead of a sheet.
+private let emberScopeWindowID = "emberscope"
 
 @main
 struct EmberApp: App {
     @State private var coordinator: ChatCoordinator
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     init() {
+        #if DEBUG
+        // Developer inspector for every Foundation Models session (chat + title/summary/extract).
+        EmberScope.start()
+        #endif
         let container: ModelContainer
         do {
             container = try ModelContainer(for: Conversation.self, Message.self, MemoryNote.self)
@@ -24,7 +35,21 @@ struct EmberApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(coordinator: coordinator)
+                .emberScope()
         }
+        .commands {
+            #if os(macOS)
+            EmberScopeCommands { openWindow(id: emberScopeWindowID) }
+            #else
+            EmberScopeCommands()
+            #endif
+        }
+        #if os(macOS)
+        Window("Ember Scope", id: emberScopeWindowID) {
+            EmberScopeView()
+        }
+        .defaultSize(width: 960, height: 680)
+        #endif
     }
 
     /// EmbeddingGemma when its bundled resources exist (they are gitignored dev assets, so

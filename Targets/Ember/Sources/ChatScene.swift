@@ -1,9 +1,13 @@
 import SwiftUI
 import FoundationChatKit
+import EmberScope
 
 struct ChatScene: View {
     let coordinator: ChatCoordinator
     @State private var showInspector = false
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     var body: some View {
         NavigationSplitView {
@@ -30,6 +34,12 @@ struct ChatScene: View {
                         .help("Show context & tokens")
                     }
                 }
+                #if DEBUG
+                ToolbarItem {
+                    Button { openScope() } label: { Image(systemName: "waveform.path.ecg") }
+                        .help("Ember Scope — sessions, tools, tokens and errors of the on-device model")
+                }
+                #endif
             }
             .inspector(isPresented: $showInspector) {
                 if let engine = coordinator.engine {
@@ -39,5 +49,13 @@ struct ChatScene: View {
                 }
             }
         }
+    }
+
+    private func openScope() {
+        #if os(macOS)
+        openWindow(id: "emberscope")
+        #else
+        EmberScope.present()
+        #endif
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import EmberScope
 import os
 
 /// Extracts durable USER facts from a completed exchange via guided generation, in a throwaway
@@ -17,7 +18,7 @@ enum MemoryExtractor {
         // USER text only: feeding the assistant's reply in as well made the model launder its own
         // suggestions into "user facts" (on-device it saved "likes exploring different European
         // cities" — the assistant's idea, not the user's).
-        let session = LanguageModelSession(
+        let session = EmberScope.session(
             instructions: """
                 You extract durable facts ABOUT THE USER from one chat message, for long-term memory.
 
@@ -30,7 +31,8 @@ enum MemoryExtractor {
                 user did not write themselves.
                 - IGNORE: greetings, small talk, acknowledgements, and bare questions.
                 - If nothing durable qualifies, return an empty list.
-                """)
+                """,
+            label: "extract")
         let prompt = """
             From this user message, list durable facts about the user (third person). \
             If there are none, return an empty list.

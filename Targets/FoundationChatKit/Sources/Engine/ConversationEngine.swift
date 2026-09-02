@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import EmberScope
 import Observation
 import os
 
@@ -128,6 +129,11 @@ public final class ConversationEngine {
             maxHits: settings.memoryInjectionMaxHits,
             maxCharsPerHit: settings.memoryInjectionMaxCharsPerHit)
         pendingMemoryBlock = memoryBlock
+        if memoryRetrieval != nil {
+            EmberScope.note(hits.isEmpty ? "retrieval: no memory hits"
+                                         : "retrieval: \(hits.count) hit(s) injected (\(memoryBlock.count) chars)",
+                            session: session.inspectionID)
+        }
         // Inline `"\(block)\n\(prompt)"` join — canonical equivalent is
         // `MemoryContextBlock.augment(prompt:with:...)` (same join). Keep the two sites in sync.
         let augmented = memoryBlock.isEmpty ? prompt : "\(memoryBlock)\n\(prompt)"
@@ -166,6 +172,8 @@ public final class ConversationEngine {
                 if attempt == 0, Self.isRetryable(chatError) {
                     attempt += 1
                     EmberLog.turn.notice("performTurn: transient error \(String(describing: chatError), privacy: .public) — retrying once")
+                    EmberScope.note("retrying after transient error: \(String(describing: chatError))",
+                                    session: session.inspectionID)
                     if assistantIndex < messages.count { messages[assistantIndex].text = "" }
                     continue
                 }
@@ -225,6 +233,8 @@ public final class ConversationEngine {
         guard projected > provider.maxContextTokens, session.contextEntries.count > 1 else { return }
         let condensed = await ContextCompactor.compact(session.contextEntries, using: provider,
                                                        onPreference: onCompactionPreference)
+        EmberScope.note("compaction (proactive): \(session.contextEntries.count) entries → \(condensed.count) seeded entries",
+                        session: session.inspectionID)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Older turns were summarized to make room.",
@@ -238,6 +248,8 @@ public final class ConversationEngine {
     private func recoverFromOverflow() async {
         let condensed = await ContextCompactor.compact(session.contextEntries, using: provider,
                                                        onPreference: onCompactionPreference)
+        EmberScope.note("compaction (overflow): \(session.contextEntries.count) entries → \(condensed.count) seeded entries",
+                        session: session.inspectionID)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Context window was full — older turns were compacted to keep the chat going.",
