@@ -22,7 +22,7 @@ struct EmberScopeModifier: ViewModifier {
             }
         #if canImport(UIKit)
             .onReceive(NotificationCenter.default.publisher(for: .emberScopeShake)) { _ in
-                if EmberScope.isRecording { store.isPresented = true }
+                if EmberScope.isActive { store.isPresented = true }   // enabled AND recording — never in a disabled release build
             }
         #endif
     }

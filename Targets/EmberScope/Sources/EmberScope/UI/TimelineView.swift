@@ -54,6 +54,7 @@ struct TimelineRow: View {
         let icon = ScopeStyle.icon(for: event.payload)
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon.name).foregroundStyle(icon.color).frame(width: 20)
+                .accessibilityHidden(true)   // the title carries the meaning
             VStack(alignment: .leading, spacing: 2) {
                 Text(ScopeStyle.title(for: event.payload)).font(.callout)
                 if let subtitle = ScopeStyle.subtitle(for: event.payload) {

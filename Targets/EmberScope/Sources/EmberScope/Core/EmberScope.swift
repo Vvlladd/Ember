@@ -23,6 +23,8 @@ public enum EmberScope {
 
     public static var configuration: ScopeConfiguration { recorder.configuration }
     public static var isRecording: Bool { recorder.isRecording }
+    /// Enabled AND recording — the gate for anything user-visible (shake, buttons).
+    public static var isActive: Bool { recorder.isActive }
 
     /// The single OSLog sink: installed once, reconfigured on every `start()` (disabled when `logToOSLog` is off).
     static let osLogSink = OSLogSink(logContent: false, isEnabled: false)

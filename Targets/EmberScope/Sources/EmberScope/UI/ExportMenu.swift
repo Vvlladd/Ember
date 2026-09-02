@@ -1,15 +1,18 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Rendering happens inside the transfer representation (on share), never in a view `body`.
 struct ScopeMarkdownExport: Transferable {
-    let text: String
-    static var transferRepresentation: some TransferRepresentation { ProxyRepresentation(exporting: \.text) }
+    let archive: ScopeArchive
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(exporting: { ScopeExport.markdown($0.archive) })
+    }
 }
 
 struct ScopeJSONExport: Transferable {
-    let data: Data
+    let archive: ScopeArchive
     static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(exportedContentType: .json) { $0.data }
+        DataRepresentation(exportedContentType: .json) { try ScopeExport.json($0.archive) }
     }
 }
 
@@ -19,14 +22,13 @@ struct ExportMenu: View {
 
     var body: some View {
         Menu {
-            ShareLink(item: ScopeMarkdownExport(text: ScopeExport.markdown(archive)),
+            ShareLink(item: ScopeMarkdownExport(archive: archive),
                       preview: SharePreview("EmberScope report.md")) {
                 Label("Share Markdown report", systemImage: "doc.richtext")
             }
-            if let data = try? ScopeExport.json(archive) {
-                ShareLink(item: ScopeJSONExport(data: data), preview: SharePreview("EmberScope export.json")) {
-                    Label("Share JSON archive", systemImage: "curlybraces")
-                }
+            ShareLink(item: ScopeJSONExport(archive: archive),
+                      preview: SharePreview("EmberScope export.json")) {
+                Label("Share JSON archive", systemImage: "curlybraces")
             }
             Button { ScopeClipboard.copy(ScopeExport.markdown(archive)) } label: { Label("Copy Markdown", systemImage: "doc.on.doc") }
         } label: {
@@ -38,6 +40,7 @@ struct ExportMenu: View {
 /// Record / clear / export / done — applied to every tab's root.
 struct ScopeToolbar: ViewModifier {
     let store: ScopeStore
+    @Environment(\.dismiss) private var dismiss
 
     /// `isRecording` mirrors the recorder's flag, but a host that disabled EmberScope records nothing
     /// whatever the flag says — so the toggle is inert and says why.
@@ -59,7 +62,7 @@ struct ScopeToolbar: ViewModifier {
                 ExportMenu(store: store)
             }
             ToolbarItem(placement: .cancellationAction) {
-                Button("Done") { store.isPresented = false }
+                Button("Done") { dismiss() }   // sheet AND dedicated macOS window
             }
         }
     }
