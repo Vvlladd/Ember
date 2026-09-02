@@ -3949,7 +3949,8 @@ import Testing
 
 struct ScopeExportTests {
     private func projection() -> ScopeProjection {
-        let snapshot = TranscriptSnapshot.make(from: Fixtures.transcript(), sessionID: Fixtures.sessionID, contextSize: 4096)
+        // takenAt pinned: .iso8601 has second resolution, so a live Date() would not round-trip equal.
+        let snapshot = TranscriptSnapshot.make(from: Fixtures.transcript(), sessionID: Fixtures.sessionID, contextSize: 4096, takenAt: Fixtures.date)
         let request = RequestRecord(sessionID: Fixtures.sessionID, startedAt: Fixtures.date, start: Fixtures.requestStart,
                                     end: Fixtures.requestEnd)
         let call = ToolCallRecord(sessionID: Fixtures.sessionID, startedAt: Fixtures.date,
@@ -4033,17 +4034,12 @@ public enum ScopeFormatting {
     }
 
     public static func tokens(_ n: Int) -> String {
-        n.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US_POSIX")))
+        n.formatted(.number.grouping(.automatic).locale(Locale(identifier: "en_US")))   // en_US_POSIX has no grouping separators
     }
 
-    private static let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        return f
-    }()
-
-    public static func timestamp(_ date: Date) -> String { iso.string(from: date) }
+    /// UTC, second resolution. A format style is a Sendable value; a static `ISO8601DateFormatter` is not
+    /// concurrency-safe under strict checking.
+    public static func timestamp(_ date: Date) -> String { date.formatted(.iso8601) }
 
     public static func short(_ id: UUID) -> String { String(id.uuidString.prefix(8)) }
 
@@ -4051,7 +4047,7 @@ public enum ScopeFormatting {
     public static func preview(_ text: String, max: Int = 80) -> String {
         let collapsed = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
         guard collapsed.count > max else { return collapsed }
-        return String(collapsed.prefix(max - 1)) + "…"
+        return String(collapsed.prefix(Swift.max(0, max - 1))) + "…"   // never trap on a tiny `max`
     }
 }
 ```
@@ -4202,7 +4198,7 @@ public enum ScopeExport {
 xcodebuild -workspace Ember.xcworkspace -scheme EmberScope -destination 'platform=macOS' test 2>&1 | grep -E 'Test run with|TEST SUCCEEDED|TEST FAILED|error:'
 ```
 
-Expected: `Test run with 81 tests … passed`, `** TEST SUCCEEDED **`. If `.formatted(.number.grouping(.automatic).locale(...))` does not compile on this SDK, use a `NumberFormatter` with `numberStyle = .decimal` and `locale = Locale(identifier: "en_US_POSIX")`.
+Expected: `Test run with 81 tests … passed`, `** TEST SUCCEEDED **`. If `.formatted(.number.grouping(.automatic).locale(...))` does not compile on this SDK, use a `NumberFormatter` with `numberStyle = .decimal` and `locale = Locale(identifier: "en_US")` (POSIX has no grouping).
 
 - [ ] **Step 5: Commit**
 
