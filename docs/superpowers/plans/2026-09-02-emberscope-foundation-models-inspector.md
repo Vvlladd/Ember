@@ -4003,6 +4003,18 @@ struct ScopeExportTests {
         #expect(ScopeFormatting.preview("a\nb   c", max: 80) == "a b c")
         #expect(ScopeFormatting.preview(String(repeating: "x", count: 100), max: 10) == "xxxxxxxxx…")
         #expect(ScopeFormatting.timestamp(Fixtures.date) == "2023-11-14T22:13:20Z")
+        #expect(ScopeFormatting.singleLine("a\nb\r\nc") == "a b c")
+    }
+
+    /// Ruling (Task 12 review): multi-line / fenced content must not break the report's structure.
+    @Test func multiLineContentIsFencedSoLaterSectionsSurvive() {
+        var p = projection()
+        p.sessions[0].info.instructions = "Line one\n```swift\nlet x = 1\n```\nLine two"
+        let md = ScopeExport.markdown(ScopeArchive(projection: p, exportedAt: Fixtures.date))
+        #expect(md.contains("- Instructions:\n    ````\n    Line one\n    ```swift"))   // fence longer than the embedded ```
+        #expect(md.contains("    Line two\n    ````\n"))
+        #expect(md.contains("## Errors (1)"))
+        #expect(md.contains("## Notes"))
     }
 }
 ```
@@ -4042,6 +4054,11 @@ public enum ScopeFormatting {
     public static func timestamp(_ date: Date) -> String { date.formatted(.iso8601) }
 
     public static func short(_ id: UUID) -> String { String(id.uuidString.prefix(8)) }
+
+    /// Newlines collapsed to spaces, nothing truncated — for Markdown list items that must stay one line.
+    public static func singleLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline).joined(separator: " ")
+    }
 
     /// Single-line preview: collapses whitespace, truncates with an ellipsis.
     public static func preview(_ text: String, max: Int = 80) -> String {
@@ -4090,6 +4107,20 @@ public enum ScopeExport {
         return try decoder.decode(ScopeArchive.self, from: data)
     }
 
+    /// Multi-line content goes in an indented fence whose length beats any backtick run inside it, so a
+    /// prompt containing ``` cannot break the list or swallow the rest of the report (Task 12 review ruling).
+    static func fenced(_ text: String, indent: String) -> [String] {
+        var longest = 0, run = 0
+        for character in text {
+            if character == "`" { run += 1; longest = max(longest, run) } else { run = 0 }
+        }
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        var lines = [indent + fence]
+        lines.append(contentsOf: text.split(separator: "\n", omittingEmptySubsequences: false).map { indent + $0 })
+        lines.append(indent + fence)
+        return lines
+    }
+
     public static func markdown(_ archive: ScopeArchive) -> String {
         var out: [String] = []
         out.append("# EmberScope export")
@@ -4112,7 +4143,12 @@ public enum ScopeExport {
         for session in archive.sessions {
             out.append("")
             out.append("### \(session.label) · \(ScopeFormatting.short(session.id)) · created \(ScopeFormatting.timestamp(session.createdAt))")
-            out.append("- Instructions: \(session.info.instructions ?? "(none)")")
+            if let instructions = session.info.instructions {
+                out.append("- Instructions:")
+                out.append(contentsOf: fenced(instructions, indent: "    "))
+            } else {
+                out.append("- Instructions: (none)")
+            }
             if session.info.tools.isEmpty {
                 out.append("- Tools: (none)")
             } else {
@@ -4147,17 +4183,23 @@ public enum ScopeExport {
                     }
                     if let format = r.start.responseFormat { line += " · → \(format)" }
                     out.append(line)
-                    if let prompt = r.promptText { out.append("    - prompt: \(prompt)") }
-                    if let output = r.end?.output { out.append("    - output: \(output)") }
-                    if let error = r.error { out.append("    - error: \(error.kind.title) — \(error.message)") }
+                    if let prompt = r.promptText {
+                        out.append("    - prompt:")
+                        out.append(contentsOf: fenced(prompt, indent: "      "))
+                    }
+                    if let output = r.end?.output {
+                        out.append("    - output:")
+                        out.append(contentsOf: fenced(output, indent: "      "))
+                    }
+                    if let error = r.error { out.append("    - error: \(error.kind.title) — \(ScopeFormatting.singleLine(error.message))") }
                 }
             }
             if !session.toolCalls.isEmpty {
                 out.append("- Tool calls:")
                 for c in session.toolCalls {
-                    var line = "  - \(c.start.toolName)(\(c.start.arguments))"
+                    var line = "  - \(c.start.toolName)(\(ScopeFormatting.singleLine(c.start.arguments)))"
                     if let end = c.end {
-                        line += " → \(end.output ?? "(no output)") · \(ScopeFormatting.duration(end.duration))"
+                        line += " → \(ScopeFormatting.singleLine(end.output ?? "(no output)")) · \(ScopeFormatting.duration(end.duration))"
                         if case .failed = end.status { line += " · FAILED" }
                     }
                     out.append(line)
@@ -4165,18 +4207,18 @@ public enum ScopeExport {
             }
             if !session.errors.isEmpty {
                 out.append("- Errors:")
-                for e in session.errors { out.append("  - \(e.kind.title): \(e.message)\(e.debugDescription.map { " (\($0))" } ?? "")") }
+                for e in session.errors { out.append("  - \(e.kind.title): \(ScopeFormatting.singleLine(e.message))\(e.debugDescription.map { " (\(ScopeFormatting.singleLine($0)))" } ?? "")") }
             }
             if !session.notes.isEmpty {
                 out.append("- Notes:")
-                for n in session.notes { out.append("  - \(ScopeFormatting.timestamp(n.timestamp)) \(n.text)") }
+                for n in session.notes { out.append("  - \(ScopeFormatting.timestamp(n.timestamp)) \(ScopeFormatting.singleLine(n.text))") }
             }
         }
         out.append("")
         out.append("## Errors (\(archive.errors.count))")
         for e in archive.errors {
-            out.append("- \(e.kind.title) — \(e.message)")
-            if let d = e.debugDescription { out.append("  - debug: \(d)") }
+            out.append("- \(e.kind.title) — \(ScopeFormatting.singleLine(e.message))")
+            if let d = e.debugDescription { out.append("  - debug: \(ScopeFormatting.singleLine(d))") }
             if let r = e.recoverySuggestion { out.append("  - recovery: \(r)") }
             if !e.underlyingChain.isEmpty { out.append("  - chain: \(e.underlyingChain.joined(separator: " > "))") }
             out.append("  - retryable: \(e.isRetryable)")
@@ -4184,7 +4226,7 @@ public enum ScopeExport {
         if !archive.notes.isEmpty {
             out.append("")
             out.append("## Notes")
-            for n in archive.notes { out.append("- \(ScopeFormatting.timestamp(n.timestamp)) \(n.text)") }
+            for n in archive.notes { out.append("- \(ScopeFormatting.timestamp(n.timestamp)) \(ScopeFormatting.singleLine(n.text))") }
         }
         out.append("")
         return out.joined(separator: "\n")
