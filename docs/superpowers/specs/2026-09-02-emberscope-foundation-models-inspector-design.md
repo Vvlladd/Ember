@@ -178,7 +178,7 @@ Options are captured as plain values: `temperature`, `maximumResponseTokens`, an
 ### 4. `ScopeRecorder` + sinks
 
 - `final class ScopeRecorder: Sendable` guarding `State { configuration, isRecording, nextSequence, events: Deque/ring, sinks }` with `Mutex`.
-- `record(_ payload:, sessionID:)` — assigns `sequence` and `timestamp` under the lock, appends (evicting beyond `maxEvents`), applies redaction when `captureContent == false`, forwards to sinks **outside** the lock, and schedules a coalesced `@MainActor` flush (`store.refresh()`), so hot paths never touch the main actor synchronously.
+- `record(_ payload:, sessionID:)` — assigns `sequence` and `timestamp` under the lock, appends (evicting beyond `maxEvents`), applies redaction when `captureContent == false` (content fields *and* the four free-form error strings; see Privacy), forwards to sinks **outside** the lock, and schedules a coalesced `@MainActor` flush (`store.refresh()`), so hot paths never touch the main actor synchronously.
 - `snapshot() -> [ScopeEvent]` (ordered), `clear()`, `setRecording(_:)`, `update(configuration:)`.
 - `protocol ScopeSink: Sendable { func receive(_ event: ScopeEvent) }`. Built-in `OSLogSink` (subsystem `dev.emberscope`, categories `Session`, `Request`, `Tool`, `Error`, `Tokens`, `Model`; metadata-only by default).
 - Disabled fast path: `isEnabled == false` → `record` returns immediately; wrappers still forward calls untouched.
@@ -351,7 +351,7 @@ The inspector must never change host behavior: every recording call is wrapped s
 
 ## Privacy
 
-In-memory only; nothing persisted. Content capture can be disabled (`captureContent = false`) for a metadata-only inspector. OSLog gets metadata by default; content interpolation is `.private` and opt-in. Export is user-initiated through the system share sheet. The library adds no entitlements and never touches the network — it lives inside Ember's zero-network boundary.
+In-memory only; nothing persisted. Content capture can be disabled (`captureContent = false`) for a metadata-only inspector: prompts, outputs, tool arguments, transcript text **and the free-form error strings** (`message`, `debugDescription`, `recoverySuggestion`, `failureReason` — Apple's and tool authors' messages can quote prompt text) are replaced by length placeholders; error `kind`, `isRetryable`, the underlying-error chain and all IDs stay. OSLog gets metadata by default; content interpolation is `.private` and opt-in. Export is user-initiated through the system share sheet. The library adds no entitlements and never touches the network — it lives inside Ember's zero-network boundary.
 
 ## Testing
 
