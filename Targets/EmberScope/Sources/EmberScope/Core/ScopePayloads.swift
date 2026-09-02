@@ -144,10 +144,3 @@ public struct TokenCounts: Sendable, Codable, Equatable {
         self.snapshotID = snapshotID; self.entryTokens = entryTokens; self.toolsTokens = toolsTokens
     }
 }
-
-// Temporary stub — Task 3 replaces this with the real snapshot type in TranscriptSnapshot.swift.
-public struct TranscriptSnapshot: Sendable, Codable, Equatable, Identifiable {
-    public var id: UUID
-    public var sessionID: UUID
-    public init(id: UUID, sessionID: UUID) { self.id = id; self.sessionID = sessionID }
-}

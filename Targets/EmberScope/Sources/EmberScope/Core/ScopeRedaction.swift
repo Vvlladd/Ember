@@ -49,8 +49,3 @@ public extension ScopePayload {
         }
     }
 }
-
-extension TranscriptSnapshot {
-    // Task 3 replaces this with a real implementation once entries exist.
-    func redacted() -> TranscriptSnapshot { self }
-}

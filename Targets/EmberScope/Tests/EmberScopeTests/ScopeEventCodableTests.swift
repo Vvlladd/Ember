@@ -44,4 +44,13 @@ struct ScopeEventCodableTests {
         #expect(ScopeErrorRecord.Kind.allCases.count == 13)
         #expect(ScopeErrorRecord.Kind.exceededContextWindowSize.rawValue == "exceededContextWindowSize")
     }
+
+    @Test func transcriptSnapshotRoundTrips() throws {
+        let snapshot = TranscriptSnapshot.make(from: Fixtures.transcript(), sessionID: Fixtures.sessionID,
+                                               contextSize: 4096, tools: [EchoTool()], takenAt: Fixtures.date)
+        let decoded = try roundTrip(.transcriptSnapshot(snapshot))
+        guard case .transcriptSnapshot(let back) = decoded.payload else { Issue.record("wrong case"); return }
+        #expect(back.entries.count == 5)
+        #expect(back.usedTokens == snapshot.usedTokens && back.toolsTokens == snapshot.toolsTokens)
+    }
 }
