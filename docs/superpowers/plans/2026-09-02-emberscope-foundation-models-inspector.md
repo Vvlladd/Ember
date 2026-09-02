@@ -1334,6 +1334,11 @@ struct ScopeRecorderTests {
         let e = r.record(.requestStarted(Fixtures.requestStart))
         guard case .requestStarted(let start)? = e?.payload else { Issue.record("wrong payload"); return }
         #expect(ScopeRedaction.isRedacted(start.prompt ?? ""))
+        // Ruling (Task 2 review): metadata-only mode must also scrub error diagnostics on the failure path.
+        let f = r.record(.error(Fixtures.errorRecord))
+        guard case .error(let record)? = f?.payload else { Issue.record("wrong payload"); return }
+        #expect(ScopeRedaction.isRedacted(record.message))
+        #expect(record.kind == .rateLimited && record.isRetryable)
     }
 
     @Test func sinksReceiveEveryEvent() {
