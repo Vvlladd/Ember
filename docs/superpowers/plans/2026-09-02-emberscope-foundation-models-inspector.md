@@ -3301,6 +3301,24 @@ struct ScopeStoreFoldTests {
         #expect(p.sessions.map(\.id).contains(s1) == false)   // oldest dropped
     }
 
+    /// Ruling (Task 10 review): a finish whose start was evicted must not touch the registry.
+    @Test func orphanToolCallFinishDoesNotSkewTheRegistry() {
+        let orphan = Fixtures.event(.toolCallFinished(ToolCallEnd(callID: UUID(), toolName: "echo", status: .failed(errorID: UUID()),
+                                                                  duration: .seconds(9), output: nil)), sequence: 1, sessionID: s1)
+        let p = ScopeStore.fold([orphan])
+        #expect(p.tools.isEmpty)
+        #expect(p.sessions.first?.toolCalls.isEmpty == true)
+    }
+
+    /// `fold` is public and may see concatenated/decoded streams: duplicate start ids never double-list.
+    @Test func duplicateStartEventsNeverDoubleList() {
+        let start = Fixtures.event(.requestStarted(Fixtures.requestStart), sequence: 1, sessionID: s1)
+        let again = Fixtures.event(.requestStarted(Fixtures.requestStart), sequence: 2, sessionID: s1)
+        let p = ScopeStore.fold([start, again])
+        #expect(p.sessions.first?.requests.count == 1)
+        #expect(ScopeStore.fold([], maxSessions: -1).sessions.isEmpty)
+    }
+
     @Test func foldIsOrderIndependent() {
         let events = stream()                       // ONE array — the fixture mints fresh UUIDs on every call
         #expect(ScopeStore.fold(events.shuffled()) == ScopeStore.fold(events))
@@ -3532,17 +3550,22 @@ public final class ScopeStore {
             case .prewarm:
                 if let sid = event.sessionID { sessions[sid]?.prewarmCount += 1 }
             case .requestStarted(let start):
+                if requests[start.requestID] == nil { requestOrder.append(start.requestID) }   // duplicate ids never double-list
                 requests[start.requestID] = RequestRecord(sessionID: event.sessionID, startedAt: event.timestamp, start: start)
-                requestOrder.append(start.requestID)
             case .streamProgress(let progress):
                 requests[progress.requestID]?.progress = progress
             case .requestFinished(let end):
                 requests[end.requestID]?.end = end
             case .toolCallStarted(let start):
+                if toolCalls[start.callID] == nil {
+                    toolCallOrder.append(start.callID)
+                    registry[start.toolName, default: ToolRegistryEntry(name: start.toolName)].callCount += 1
+                }
                 toolCalls[start.callID] = ToolCallRecord(sessionID: event.sessionID, startedAt: event.timestamp, start: start)
-                toolCallOrder.append(start.callID)
-                registry[start.toolName, default: ToolRegistryEntry(name: start.toolName)].callCount += 1
             case .toolCallFinished(let end):
+                // Aggregate only calls whose start survived the ring buffer, so callCount and totalDuration
+                // describe the same population (an orphan finish would skew meanDuration / failureCount).
+                guard toolCalls[end.callID] != nil else { continue }
                 toolCalls[end.callID]?.end = end
                 registry[end.toolName, default: ToolRegistryEntry(name: end.toolName)].totalDuration += end.duration
                 if case .failed = end.status {
@@ -3576,7 +3599,8 @@ public final class ScopeStore {
         }
 
         var newestFirst = sessionOrder.reversed().compactMap { sessions[$0] }
-        if newestFirst.count > maxSessions { newestFirst = Array(newestFirst.prefix(maxSessions)) }
+        let cap = max(0, maxSessions)   // a negative host value must not trap
+        if newestFirst.count > cap { newestFirst = Array(newestFirst.prefix(cap)) }
 
         return ScopeProjection(sessions: newestFirst,
                                timeline: ordered,
