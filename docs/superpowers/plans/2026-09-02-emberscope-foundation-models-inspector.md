@@ -2144,7 +2144,8 @@ import Testing
 final class FakeClock: Sendable {
     private let value = Mutex<Duration>(.zero)
     func advance(_ d: Duration) { value.withLock { $0 += d } }
-    var now: @Sendable () -> Duration { { [value] in value.withLock { $0 } } }
+    // `Mutex` is ~Copyable, so it cannot be captured by value; capture the (Sendable) clock itself.
+    var now: @Sendable () -> Duration { { [self] in self.value.withLock { $0 } } }
 }
 
 struct RequestObserverTests {
@@ -2297,7 +2298,7 @@ public final class RequestObserver: Sendable {
         self.recorder = recorder
         self.sessionID = sessionID
         self.progressInterval = progressInterval
-        self.now = now ?? MonotonicClock.now
+        self.now = now ?? { MonotonicClock.now() }   // closure literal: a bare function reference warns under strict concurrency
     }
 
     public func start(kind: RequestKind, prompt: String?, options: GenerationOptions, responseFormat: String?,
