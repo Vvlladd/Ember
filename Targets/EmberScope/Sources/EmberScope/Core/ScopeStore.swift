@@ -184,17 +184,22 @@ public final class ScopeStore {
             case .prewarm:
                 if let sid = event.sessionID { sessions[sid]?.prewarmCount += 1 }
             case .requestStarted(let start):
+                if requests[start.requestID] == nil { requestOrder.append(start.requestID) }   // duplicate ids never double-list
                 requests[start.requestID] = RequestRecord(sessionID: event.sessionID, startedAt: event.timestamp, start: start)
-                requestOrder.append(start.requestID)
             case .streamProgress(let progress):
                 requests[progress.requestID]?.progress = progress
             case .requestFinished(let end):
                 requests[end.requestID]?.end = end
             case .toolCallStarted(let start):
+                if toolCalls[start.callID] == nil {
+                    toolCallOrder.append(start.callID)
+                    registry[start.toolName, default: ToolRegistryEntry(name: start.toolName)].callCount += 1
+                }
                 toolCalls[start.callID] = ToolCallRecord(sessionID: event.sessionID, startedAt: event.timestamp, start: start)
-                toolCallOrder.append(start.callID)
-                registry[start.toolName, default: ToolRegistryEntry(name: start.toolName)].callCount += 1
             case .toolCallFinished(let end):
+                // Aggregate only calls whose start survived the ring buffer, so callCount and totalDuration
+                // describe the same population (an orphan finish would skew meanDuration / failureCount).
+                guard toolCalls[end.callID] != nil else { continue }
                 toolCalls[end.callID]?.end = end
                 registry[end.toolName, default: ToolRegistryEntry(name: end.toolName)].totalDuration += end.duration
                 if case .failed = end.status {
@@ -228,7 +233,8 @@ public final class ScopeStore {
         }
 
         var newestFirst = sessionOrder.reversed().compactMap { sessions[$0] }
-        if newestFirst.count > maxSessions { newestFirst = Array(newestFirst.prefix(maxSessions)) }
+        let cap = max(0, maxSessions)   // a negative host value must not trap
+        if newestFirst.count > cap { newestFirst = Array(newestFirst.prefix(cap)) }
 
         return ScopeProjection(sessions: newestFirst,
                                timeline: ordered,

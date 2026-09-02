@@ -104,6 +104,24 @@ struct ScopeStoreFoldTests {
         #expect(p.sessions.map(\.id).contains(s1) == false)   // oldest dropped
     }
 
+    /// Ruling (Task 10 review): a finish whose start was evicted must not touch the registry.
+    @Test func orphanToolCallFinishDoesNotSkewTheRegistry() {
+        let orphan = Fixtures.event(.toolCallFinished(ToolCallEnd(callID: UUID(), toolName: "echo", status: .failed(errorID: UUID()),
+                                                                  duration: .seconds(9), output: nil)), sequence: 1, sessionID: s1)
+        let p = ScopeStore.fold([orphan])
+        #expect(p.tools.isEmpty)
+        #expect(p.sessions.first?.toolCalls.isEmpty == true)
+    }
+
+    /// `fold` is public and may see concatenated/decoded streams: duplicate start ids never double-list.
+    @Test func duplicateStartEventsNeverDoubleList() {
+        let start = Fixtures.event(.requestStarted(Fixtures.requestStart), sequence: 1, sessionID: s1)
+        let again = Fixtures.event(.requestStarted(Fixtures.requestStart), sequence: 2, sessionID: s1)
+        let p = ScopeStore.fold([start, again])
+        #expect(p.sessions.first?.requests.count == 1)
+        #expect(ScopeStore.fold([], maxSessions: -1).sessions.isEmpty)
+    }
+
     @Test func foldIsOrderIndependent() {
         let events = stream()                       // ONE array — the fixture mints fresh UUIDs on every call
         #expect(ScopeStore.fold(events.shuffled()) == ScopeStore.fold(events))
