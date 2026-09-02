@@ -9,9 +9,9 @@ struct ToolCallRow: View {
                 Spacer()
                 if let end = call.end {
                     Text(ScopeFormatting.duration(end.duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    if case .failed = end.status { Image(systemName: "xmark.octagon.fill").foregroundStyle(.red) }
+                    if case .failed = end.status { Image(systemName: "xmark.octagon.fill").foregroundStyle(.red).accessibilityLabel("Failed") }
                 } else {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.small).accessibilityLabel("Running")
                 }
             }
             Text(ScopeFormatting.preview(call.start.arguments, max: 120)).font(.caption.monospaced()).lineLimit(2)
@@ -39,6 +39,7 @@ struct ToolCallDetail: View {
             if let error = call.error { Section("Error") { ErrorSummary(error: error) } }
             Section { LabeledContent("Started", value: ScopeFormatting.timestamp(call.startedAt)); LabeledContent("Call id", value: ScopeFormatting.short(call.id)) }
         }
+        .textSelection(.enabled)
         .navigationTitle(call.start.toolName)
         .toolbar { CopyButton(text: call.start.arguments) }
     }

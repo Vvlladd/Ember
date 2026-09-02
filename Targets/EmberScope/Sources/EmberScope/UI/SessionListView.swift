@@ -50,7 +50,7 @@ struct SessionRow: View {
                 badge("\(session.requests.count) req", .blue)
                 badge("\(session.toolCalls.count) tools", .orange)
                 if !session.errors.isEmpty { badge("\(session.errors.count) errors", .red) }
-                if session.requests.contains(where: \.isInFlight) { ProgressView().controlSize(.mini) }
+                if session.requests.contains(where: \.isInFlight) { ProgressView().controlSize(.mini).accessibilityLabel("Running") }
             }
             if let snap = session.latestSnapshot { ContextWindowBar(snapshot: snap, compact: true) }
         }

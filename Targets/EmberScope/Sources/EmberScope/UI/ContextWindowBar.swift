@@ -9,6 +9,12 @@ struct ContextWindowBar: View {
         ScopeEntry.Kind.allCases.map { ($0, snapshot.tokens(by: $0)) }.filter { $0.1 > 0 }
     }
 
+    /// An overflowing transcript is exactly what the inspector exists to show: normalize by whichever is
+    /// larger — the window, or what is in it — so the segments never paint past the track.
+    private var scale: Int { max(1, snapshot.contextSize, snapshot.usedTokens) }
+    /// Drives the red caption. `fraction` cannot: it clamps at 1, and reads 0 when `contextSize` is unknown.
+    private var isOverBudget: Bool { snapshot.usedTokens > snapshot.contextSize }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             GeometryReader { geo in
@@ -16,7 +22,7 @@ struct ContextWindowBar: View {
                     ForEach(segments, id: \.0) { kind, tokens in
                         Rectangle()
                             .fill(ScopeStyle.color(kind))
-                            .frame(width: max(1, geo.size.width * CGFloat(tokens) / CGFloat(max(1, snapshot.contextSize))))
+                            .frame(width: max(1, geo.size.width * CGFloat(tokens) / CGFloat(scale)))
                     }
                     Spacer(minLength: 0)
                 }
@@ -28,7 +34,7 @@ struct ContextWindowBar: View {
                 HStack {
                     Text("\(ScopeFormatting.tokens(snapshot.usedTokens)) / \(ScopeFormatting.tokens(snapshot.contextSize))")
                         .monospacedDigit().bold()
-                        .foregroundStyle(ScopeStyle.color(fraction: snapshot.fraction))
+                        .foregroundStyle(isOverBudget ? ScopeStyle.error : ScopeStyle.color(fraction: snapshot.fraction))
                     Text("· \(ScopeFormatting.tokens(snapshot.remainingTokens)) remaining")
                     Spacer()
                     Text(snapshot.isExact ? "exact" : "estimated")

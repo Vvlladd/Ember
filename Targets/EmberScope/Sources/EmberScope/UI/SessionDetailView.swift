@@ -60,6 +60,7 @@ struct SessionDetailView: View {
                 }
             }
         }
+        .textSelection(.enabled)
         .navigationTitle(session.label)
     }
 }

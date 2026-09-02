@@ -3,11 +3,12 @@ import SwiftUI
 struct RequestStatusIcon: View {
     let request: RequestRecord
     var body: some View {
+        // Glyph-only status: VoiceOver would otherwise read the SF Symbol name, or nothing at all.
         switch request.end?.status {
-        case .succeeded?: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .failed?: Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
-        case .cancelled?: Image(systemName: "slash.circle").foregroundStyle(.secondary)
-        case nil: ProgressView().controlSize(.small)
+        case .succeeded?: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Succeeded")
+        case .failed?: Image(systemName: "xmark.octagon.fill").foregroundStyle(.red).accessibilityLabel("Failed")
+        case .cancelled?: Image(systemName: "slash.circle").foregroundStyle(.secondary).accessibilityLabel("Cancelled")
+        case nil: ProgressView().controlSize(.small).accessibilityLabel("In flight")
         }
     }
 }
@@ -82,6 +83,7 @@ struct RequestDetail: View {
                 Section("Error") { ErrorSummary(error: error) }
             }
         }
+        .textSelection(.enabled)
         .navigationTitle("Request")
         .toolbar { if let text = request.promptText { CopyButton(text: text) } }
     }

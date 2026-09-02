@@ -54,6 +54,7 @@ struct TranscriptEntryDetail: View {
             Section("Text") { Text(entry.text).font(.callout).textSelection(.enabled) }
             if let json = entry.structuredJSON { Section("Structured content") { CodeText(text: json) } }
         }
+        .textSelection(.enabled)
         .navigationTitle(ScopeStyle.label(entry.kind).capitalized)
         .toolbar { CopyButton(text: entry.text) }
     }
