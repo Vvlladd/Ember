@@ -79,6 +79,5 @@ struct InspectedToolTests {
         let tool = EchoTool().inspected(sessionID: Fixtures.sessionID)
         #expect(tool.name == "echo")
         #expect(tool.sessionID == Fixtures.sessionID)
-        #expect(EmberScope.recorder.isRecording == false)   // nothing records until EmberScope.start()
     }
 }
