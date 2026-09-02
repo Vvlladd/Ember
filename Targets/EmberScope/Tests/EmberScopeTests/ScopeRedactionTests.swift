@@ -35,6 +35,17 @@ struct ScopeRedactionTests {
     @Test func nonContentPayloadsAreUnchanged() {
         #expect(ScopePayload.prewarm.redacted() == .prewarm)
         #expect(ScopePayload.note("n").redacted() == .note("n"))
-        #expect(ScopePayload.error(Fixtures.errorRecord).redacted() == .error(Fixtures.errorRecord))
+    }
+
+    /// Ruling (Task 2 review): Apple's and tool authors' error messages can quote prompt text, so a
+    /// metadata-only inspector redacts the four free-form strings but keeps every structured field.
+    @Test func errorDiagnosticsAreRedactedButStructureIsKept() {
+        guard case .error(let e) = ScopePayload.error(Fixtures.errorRecord).redacted() else { Issue.record("wrong case"); return }
+        #expect(e.id == Fixtures.errorRecord.id && e.kind == .rateLimited && e.isRetryable)
+        #expect(e.requestID == Fixtures.requestID && e.underlyingChain == Fixtures.errorRecord.underlyingChain)
+        #expect(e.message == ScopeRedaction.placeholder(forCharacterCount: 12))
+        #expect(e.debugDescription.map(ScopeRedaction.isRedacted) == true)
+        #expect(e.recoverySuggestion.map(ScopeRedaction.isRedacted) == true)
+        #expect(e.failureReason == nil)
     }
 }

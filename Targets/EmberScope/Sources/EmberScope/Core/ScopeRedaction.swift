@@ -15,7 +15,8 @@ public enum ScopeRedaction {
 
 public extension ScopePayload {
     /// Content-free copy: user-derived text is replaced by a length placeholder; developer metadata
-    /// (tool names/descriptions/schemas, options, counts, durations, notes, error diagnostics) is kept.
+    /// (tool names/descriptions/schemas, options, counts, durations, notes, structured error fields) is kept;
+    /// free-form error strings are redacted too because they can quote prompt text.
     func redacted() -> ScopePayload {
         switch self {
         case .sessionCreated(var info):
@@ -36,7 +37,14 @@ public extension ScopePayload {
             return .toolCallFinished(end)
         case .transcriptSnapshot(let snapshot):
             return .transcriptSnapshot(snapshot.redacted())
-        case .prewarm, .streamProgress, .error, .tokenCountsResolved, .modelStatus, .note:
+        case .error(var record):
+            // Free-form strings can quote prompt text; structured diagnostics (kind, retryable, chain, ids) stay.
+            record.message = ScopeRedaction.redact(record.message)
+            record.debugDescription = ScopeRedaction.redact(record.debugDescription)
+            record.recoverySuggestion = ScopeRedaction.redact(record.recoverySuggestion)
+            record.failureReason = ScopeRedaction.redact(record.failureReason)
+            return .error(record)
+        case .prewarm, .streamProgress, .tokenCountsResolved, .modelStatus, .note:
             return self
         }
     }

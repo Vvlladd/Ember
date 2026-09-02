@@ -8,7 +8,7 @@ public struct ScopeConfiguration: Sendable, Equatable {
     public var maxEvents: Int
     /// Oldest sessions are dropped from the projection beyond this count.
     public var maxSessions: Int
-    /// When false, prompts / outputs / tool arguments / transcript text are replaced by a
+    /// When false, prompts / outputs / tool arguments / transcript text and the free-form error strings are replaced by a
     /// `ScopeRedaction` placeholder at record time (metadata-only inspector).
     public var captureContent: Bool
     /// Install the built-in `OSLogSink` on `EmberScope.start()`.
