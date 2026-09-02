@@ -42,7 +42,7 @@ public struct InspectedResponseStream<Content: Generable>: AsyncSequence {
     }
 
     /// Consume the whole stream (like the SDK's `collect()`).
-    public func collect() async throws -> LanguageModelSession.Response<Content> {
+    nonisolated(nonsending) public func collect() async throws -> LanguageModelSession.Response<Content> {
         guard let finalizer else { return try await base.collect() }
         do {
             let response = try await base.collect()
@@ -63,10 +63,11 @@ public struct InspectedResponseStream<Content: Generable>: AsyncSequence {
         var lastOutput: String?
         var isFinished = false
 
-        public mutating func next() async throws -> Element? {
+        // Mirrors the SDK: runs in the caller's isolation so non-Sendable Snapshots never cross a boundary.
+        public mutating func next(isolation actor: isolated (any Actor)? = #isolation) async throws -> Element? {
             if isFinished { return nil }
             do {
-                guard let snapshot = try await base.next() else {
+                guard let snapshot = try await base.next(isolation: actor) else {
                     isFinished = true
                     if let finalizer, finalizer.markDone() {
                         session.finishFromTranscript(finalizer.handle, output: lastOutput)

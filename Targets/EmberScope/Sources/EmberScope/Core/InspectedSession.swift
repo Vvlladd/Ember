@@ -77,7 +77,7 @@ public final class InspectedSession: Sendable {
     }
 
     @discardableResult
-    public func respond(to prompt: Prompt, options: GenerationOptions = GenerationOptions()) async throws
+    nonisolated(nonsending) public func respond(to prompt: Prompt, options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<String> {
         guard recorder.isActive else { return try await base.respond(to: prompt, options: options) }
         let handle = begin(kind: .respond, prompt: nil, options: options, responseFormat: nil, includeSchema: nil)
@@ -90,7 +90,7 @@ public final class InspectedSession: Sendable {
 
     @_disfavoredOverload
     @discardableResult
-    public func respond(to prompt: String, options: GenerationOptions = GenerationOptions()) async throws
+    nonisolated(nonsending) public func respond(to prompt: String, options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<String> {
         guard recorder.isActive else { return try await base.respond(to: prompt, options: options) }
         let handle = begin(kind: .respond, prompt: prompt, options: options, responseFormat: nil, includeSchema: nil)
@@ -102,7 +102,7 @@ public final class InspectedSession: Sendable {
     }
 
     @discardableResult
-    public func respond<Content: Generable>(to prompt: Prompt, generating type: Content.Type = Content.self,
+    nonisolated(nonsending) public func respond<Content: Generable>(to prompt: Prompt, generating type: Content.Type = Content.self,
                                             includeSchemaInPrompt: Bool = true,
                                             options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<Content> {
@@ -120,7 +120,7 @@ public final class InspectedSession: Sendable {
 
     @_disfavoredOverload
     @discardableResult
-    public func respond<Content: Generable>(to prompt: String, generating type: Content.Type = Content.self,
+    nonisolated(nonsending) public func respond<Content: Generable>(to prompt: String, generating type: Content.Type = Content.self,
                                             includeSchemaInPrompt: Bool = true,
                                             options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<Content> {
@@ -137,7 +137,7 @@ public final class InspectedSession: Sendable {
     }
 
     @discardableResult
-    public func respond(to prompt: Prompt, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
+    nonisolated(nonsending) public func respond(to prompt: Prompt, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
                         options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<GeneratedContent> {
         guard recorder.isActive else {
@@ -154,7 +154,7 @@ public final class InspectedSession: Sendable {
 
     @_disfavoredOverload
     @discardableResult
-    public func respond(to prompt: String, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
+    nonisolated(nonsending) public func respond(to prompt: String, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
                         options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<GeneratedContent> {
         guard recorder.isActive else {
