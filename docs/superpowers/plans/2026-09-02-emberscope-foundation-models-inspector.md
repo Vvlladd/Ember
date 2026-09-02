@@ -33,6 +33,7 @@ Project.swift                                             MOD  EmberScope + Embe
 Targets/EmberScope/
   README.md                                               NEW  library README (Task 16)
   Sources/EmberScope/Core/
+    EmberScopeVersion.swift                               NEW  T0  library version string
     ScopeConfiguration.swift                              NEW  T1  knobs + DEBUG default
     ScopeTokenEstimator.swift                             NEW  T1  chars/3.5 + CJK heuristic
     ScopeEvent.swift                                      NEW  T2  ScopeEvent + ScopePayload enum
@@ -43,13 +44,16 @@ Targets/EmberScope/
     ScopeRecorder.swift                                   NEW  T4  Mutex-protected ordered event log
     ScopeSink.swift                                       NEW  T4  ScopeSink protocol + OSLogSink + ScopeDiagnostics logger
     ScopeErrorClassifier.swift                            NEW  T5  Error → ScopeErrorRecord
-    InspectedTool.swift                                   NEW  T6  Tool wrapper + ToolRendering + ToolInfo(tool:) + wrap(_:)
+    ToolInfo+Tool.swift                                   NEW  T3  ToolInfo(_ tool:) — schema JSON via JSONEncoder
+    MonotonicClock.swift                                  NEW  T6  process-local monotonic Duration
+    InspectedTool.swift                                   NEW  T6  Tool wrapper + ToolRendering + wrap(_:)
     RequestObserver.swift                                 NEW  T7  request lifecycle math
     TokenCounting.swift                                   NEW  T8  TokenCounting, SystemTokenCounter, TokenCountResolver
     InspectedSession.swift                                NEW  T9  LanguageModelSession wrapper
     InspectedResponseStream.swift                         NEW  T9  streaming wrapper + finalizer
     ScopeStore.swift                                      NEW  T10 @Observable projection + fold
     EmberScope.swift                                      NEW  T11 facade + extensions
+    ScopeFormatting.swift                                 NEW  T12 duration/tokens/timestamp/preview formatting
     ScopeExport.swift                                     NEW  T12 ScopeArchive + JSON/Markdown
   Sources/EmberScope/UI/
     ScopeStyle.swift                                      NEW  T13 colors/icons/formatters
@@ -3249,8 +3253,8 @@ struct ScopeStoreFoldTests {
     }
 
     @Test func foldIsOrderIndependent() {
-        let shuffled = stream().shuffled()
-        #expect(ScopeStore.fold(shuffled) == ScopeStore.fold(stream()))
+        let events = stream()                       // ONE array — the fixture mints fresh UUIDs on every call
+        #expect(ScopeStore.fold(events.shuffled()) == ScopeStore.fold(events))
     }
 }
 
@@ -4306,7 +4310,6 @@ extension ScopeStore {
         let recorder = ScopeRecorder(configuration: ScopeConfiguration(isEnabled: true, logToOSLog: false), isRecording: true)
         let chat = UUID(), title = UUID()
         let base = Date()
-        func at(_ s: TimeInterval) -> ScopeRecorder { recorder }   // events are timestamped by the recorder's clock; order is what matters
 
         recorder.record(.modelStatus(ModelStatus(availability: "unavailable: Apple Intelligence not enabled", isAvailable: false,
                                                  contextSize: 4096, supportsExactTokenCounts: true, supportedLanguageCount: 23,
@@ -5348,6 +5351,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```swift
         // FoundationChatKit
             dependencies: [.external(name: "Transformers"), .target(name: "EmberScope")]
+        // FoundationChatKitTests — the integration test imports EmberScope directly
+            dependencies: [.target(name: "FoundationChatKit"), .target(name: "EmberScope")]
         // Ember
             dependencies: [.target(name: "FoundationChatKit"), .target(name: "EmberScope")]
 ```
@@ -5387,7 +5392,7 @@ struct EmberScopeIntegrationTests {
             Issue.record("no session"); return
         }
         #expect(info.instructions == "Be Ember.")
-        #expect(info.tools.map(\.name) == ["dateTime", "calculator", "unitConverter"])
+        #expect(info.tools.map(\.name) == ["currentDateTime", "calculator", "unitConverter"])
         #expect(handle.contextEntries.map(\.kind) == [.instructions])
         #expect(EmberScope.recorder.snapshot().allSatisfy { $0.sessionID == handle.inspectionID || $0.sessionID == nil })
     }
