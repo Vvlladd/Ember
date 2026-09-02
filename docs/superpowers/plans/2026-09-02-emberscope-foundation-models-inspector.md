@@ -1452,7 +1452,16 @@ public struct OSLogSink: ScopeSink {
             tool.info("[\(sid, privacy: .public)] \(t.toolName, privacy: .public) \(String(describing: t.status), privacy: .public) duration=\(String(describing: t.duration), privacy: .public) outputChars=\(t.output?.count ?? 0)")
             content(tool, "output", t.output)
         case .error(let e):
-            error.error("[\(sid, privacy: .public)] \(e.kind.rawValue, privacy: .public) retryable=\(e.isRetryable) tool=\(e.toolName ?? "-", privacy: .public) message=\(e.message, privacy: .public) debug=\(e.debugDescription ?? "-", privacy: .public) chain=\(e.underlyingChain.joined(separator: " > "), privacy: .public)")
+            // kind / retryable / tool / chain are structured metadata; message + debugDescription can quote
+            // prompt text (see ScopeRedaction), so they follow the logContent gate like every content field.
+            let message = e.message
+            let debug = e.debugDescription ?? "-"
+            let chain = e.underlyingChain.joined(separator: " > ")
+            if logContent {
+                error.error("[\(sid, privacy: .public)] \(e.kind.rawValue, privacy: .public) retryable=\(e.isRetryable) tool=\(e.toolName ?? "-", privacy: .public) chain=\(chain, privacy: .public) message=\(message, privacy: .public) debug=\(debug, privacy: .public)")
+            } else {
+                error.error("[\(sid, privacy: .public)] \(e.kind.rawValue, privacy: .public) retryable=\(e.isRetryable) tool=\(e.toolName ?? "-", privacy: .public) chain=\(chain, privacy: .public) message=\(message, privacy: .private) debug=\(debug, privacy: .private)")
+            }
         case .transcriptSnapshot(let s):
             tokens.info("[\(sid, privacy: .public)] snapshot entries=\(s.entries.count) used=\(s.usedTokens)/\(s.contextSize) exact=\(s.isExact)")
         case .tokenCountsResolved(let c):
