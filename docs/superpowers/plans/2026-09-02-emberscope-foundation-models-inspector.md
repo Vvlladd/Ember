@@ -3496,7 +3496,8 @@ public final class ScopeStore {
 
     // MARK: Fold
 
-    public static func fold(_ events: [ScopeEvent], maxSessions: Int = 50) -> ScopeProjection {
+    // nonisolated: @MainActor would otherwise propagate to this pure static and forbid calling it off-main.
+    nonisolated public static func fold(_ events: [ScopeEvent], maxSessions: Int = 50) -> ScopeProjection {
         let ordered = events.sorted { $0.sequence < $1.sequence }
         var sessions: [UUID: SessionRecord] = [:]
         var sessionOrder: [UUID] = []
@@ -3514,7 +3515,8 @@ public final class ScopeStore {
                 sessions[id] = .placeholder(id: id, at: date)
                 sessionOrder.append(id)
             }
-            sessions[id]?.lastActivity = max(sessions[id]?.lastActivity ?? date, date)
+            let previous = sessions[id]?.lastActivity ?? date   // hoisted: overlapping dictionary accesses violate exclusivity
+            sessions[id]?.lastActivity = max(previous, date)
         }
 
         for event in ordered {
