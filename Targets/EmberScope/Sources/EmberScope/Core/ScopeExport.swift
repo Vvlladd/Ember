@@ -33,6 +33,20 @@ public enum ScopeExport {
         return try decoder.decode(ScopeArchive.self, from: data)
     }
 
+    /// Multi-line content goes in an indented fence whose length beats any backtick run inside it, so a
+    /// prompt containing ``` cannot break the list or swallow the rest of the report (Task 12 review ruling).
+    static func fenced(_ text: String, indent: String) -> [String] {
+        var longest = 0, run = 0
+        for character in text {
+            if character == "`" { run += 1; longest = max(longest, run) } else { run = 0 }
+        }
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        var lines = [indent + fence]
+        lines.append(contentsOf: text.split(separator: "\n", omittingEmptySubsequences: false).map { indent + $0 })
+        lines.append(indent + fence)
+        return lines
+    }
+
     public static func markdown(_ archive: ScopeArchive) -> String {
         var out: [String] = []
         out.append("# EmberScope export")
@@ -55,7 +69,12 @@ public enum ScopeExport {
         for session in archive.sessions {
             out.append("")
             out.append("### \(session.label) · \(ScopeFormatting.short(session.id)) · created \(ScopeFormatting.timestamp(session.createdAt))")
-            out.append("- Instructions: \(session.info.instructions ?? "(none)")")
+            if let instructions = session.info.instructions {
+                out.append("- Instructions:")
+                out.append(contentsOf: fenced(instructions, indent: "    "))
+            } else {
+                out.append("- Instructions: (none)")
+            }
             if session.info.tools.isEmpty {
                 out.append("- Tools: (none)")
             } else {
@@ -90,17 +109,23 @@ public enum ScopeExport {
                     }
                     if let format = r.start.responseFormat { line += " · → \(format)" }
                     out.append(line)
-                    if let prompt = r.promptText { out.append("    - prompt: \(prompt)") }
-                    if let output = r.end?.output { out.append("    - output: \(output)") }
-                    if let error = r.error { out.append("    - error: \(error.kind.title) — \(error.message)") }
+                    if let prompt = r.promptText {
+                        out.append("    - prompt:")
+                        out.append(contentsOf: fenced(prompt, indent: "      "))
+                    }
+                    if let output = r.end?.output {
+                        out.append("    - output:")
+                        out.append(contentsOf: fenced(output, indent: "      "))
+                    }
+                    if let error = r.error { out.append("    - error: \(error.kind.title) — \(ScopeFormatting.singleLine(error.message))") }
                 }
             }
             if !session.toolCalls.isEmpty {
                 out.append("- Tool calls:")
                 for c in session.toolCalls {
-                    var line = "  - \(c.start.toolName)(\(c.start.arguments))"
+                    var line = "  - \(c.start.toolName)(\(ScopeFormatting.singleLine(c.start.arguments)))"
                     if let end = c.end {
-                        line += " → \(end.output ?? "(no output)") · \(ScopeFormatting.duration(end.duration))"
+                        line += " → \(ScopeFormatting.singleLine(end.output ?? "(no output)")) · \(ScopeFormatting.duration(end.duration))"
                         if case .failed = end.status { line += " · FAILED" }
                     }
                     out.append(line)
@@ -108,18 +133,18 @@ public enum ScopeExport {
             }
             if !session.errors.isEmpty {
                 out.append("- Errors:")
-                for e in session.errors { out.append("  - \(e.kind.title): \(e.message)\(e.debugDescription.map { " (\($0))" } ?? "")") }
+                for e in session.errors { out.append("  - \(e.kind.title): \(ScopeFormatting.singleLine(e.message))\(e.debugDescription.map { " (\(ScopeFormatting.singleLine($0)))" } ?? "")") }
             }
             if !session.notes.isEmpty {
                 out.append("- Notes:")
-                for n in session.notes { out.append("  - \(ScopeFormatting.timestamp(n.timestamp)) \(n.text)") }
+                for n in session.notes { out.append("  - \(ScopeFormatting.timestamp(n.timestamp)) \(ScopeFormatting.singleLine(n.text))") }
             }
         }
         out.append("")
         out.append("## Errors (\(archive.errors.count))")
         for e in archive.errors {
-            out.append("- \(e.kind.title) — \(e.message)")
-            if let d = e.debugDescription { out.append("  - debug: \(d)") }
+            out.append("- \(e.kind.title) — \(ScopeFormatting.singleLine(e.message))")
+            if let d = e.debugDescription { out.append("  - debug: \(ScopeFormatting.singleLine(d))") }
             if let r = e.recoverySuggestion { out.append("  - recovery: \(r)") }
             if !e.underlyingChain.isEmpty { out.append("  - chain: \(e.underlyingChain.joined(separator: " > "))") }
             out.append("  - retryable: \(e.isRetryable)")
@@ -127,7 +152,7 @@ public enum ScopeExport {
         if !archive.notes.isEmpty {
             out.append("")
             out.append("## Notes")
-            for n in archive.notes { out.append("- \(ScopeFormatting.timestamp(n.timestamp)) \(n.text)") }
+            for n in archive.notes { out.append("- \(ScopeFormatting.timestamp(n.timestamp)) \(ScopeFormatting.singleLine(n.text))") }
         }
         out.append("")
         return out.joined(separator: "\n")

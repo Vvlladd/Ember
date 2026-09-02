@@ -57,8 +57,20 @@ struct ScopeExportTests {
         #expect(ScopeFormatting.duration(.microseconds(800)) == "0.8 ms")
         #expect(ScopeFormatting.tokens(4096) == "4,096")
         #expect(ScopeFormatting.short(Fixtures.sessionID) == "11111111")
+        #expect(ScopeFormatting.singleLine("a\nb\r\nc") == "a b c")
         #expect(ScopeFormatting.preview("a\nb   c", max: 80) == "a b c")
         #expect(ScopeFormatting.preview(String(repeating: "x", count: 100), max: 10) == "xxxxxxxxx…")
         #expect(ScopeFormatting.timestamp(Fixtures.date) == "2023-11-14T22:13:20Z")
+    }
+
+    /// Ruling (Task 12 review): multi-line / fenced content must not break the report's structure.
+    @Test func multiLineContentIsFencedSoLaterSectionsSurvive() {
+        var p = projection()
+        p.sessions[0].info.instructions = "Line one\n```swift\nlet x = 1\n```\nLine two"
+        let md = ScopeExport.markdown(ScopeArchive(projection: p, exportedAt: Fixtures.date))
+        #expect(md.contains("- Instructions:\n    ````\n    Line one\n    ```swift"))   // fence longer than the embedded ```
+        #expect(md.contains("    Line two\n    ````\n"))
+        #expect(md.contains("## Errors (1)"))
+        #expect(md.contains("## Notes"))
     }
 }

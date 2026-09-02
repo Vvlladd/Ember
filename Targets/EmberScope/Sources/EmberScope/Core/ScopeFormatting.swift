@@ -28,6 +28,11 @@ public enum ScopeFormatting {
 
     public static func short(_ id: UUID) -> String { String(id.uuidString.prefix(8)) }
 
+    /// Newlines collapsed to spaces, nothing truncated — for Markdown list items that must stay one line.
+    public static func singleLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline).joined(separator: " ")
+    }
+
     /// Single-line preview: collapses whitespace, truncates with an ellipsis.
     public static func preview(_ text: String, max: Int = 80) -> String {
         let collapsed = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
