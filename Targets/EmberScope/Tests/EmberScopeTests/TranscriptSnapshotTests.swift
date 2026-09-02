@@ -87,5 +87,6 @@ struct TranscriptSnapshotTests {
         #expect(info.description == "Echo the text back.")
         #expect(info.includesSchemaInInstructions)
         #expect(info.parametersJSON?.contains("\"text\"") == true)
+        #expect(ToolInfo(EchoTool()).parametersJSON == ToolInfo(EchoTool()).parametersJSON)   // canonical key order
     }
 }
