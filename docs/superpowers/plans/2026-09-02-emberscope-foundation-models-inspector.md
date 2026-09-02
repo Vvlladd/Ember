@@ -2580,6 +2580,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `public struct InspectedResponseStream<Content: Generable>: AsyncSequence` with `Element == LanguageModelSession.ResponseStream<Content>.Snapshot`, `makeAsyncIterator()`, `collect() async throws -> LanguageModelSession.Response<Content>`.
   - Internal: `RequestFinalizer` (records `.cancelled` if a stream is dropped before completion).
 - Attribute note (verified in the SDK interface): the SDK marks the `String` variants of `init(instructions:)`, `respond(to:)` and `streamResponse(to:)` `@_disfavoredOverload`; mirror that exactly so overload resolution behaves identically for callers.
+- Execution semantics are mirrored too (Task 9 review ruling): every async `respond` overload and `collect()` is `nonisolated(nonsending)` and the iterator implements `next(isolation:)`, so calls run in the caller's isolation — no hop per token, and non-Sendable `Response`/`Snapshot` values never cross an isolation boundary.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2832,7 +2833,7 @@ public final class InspectedSession: Sendable {
     }
 
     @discardableResult
-    public func respond(to prompt: Prompt, options: GenerationOptions = GenerationOptions()) async throws
+    nonisolated(nonsending) public func respond(to prompt: Prompt, options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<String> {
         guard recorder.isActive else { return try await base.respond(to: prompt, options: options) }
         let handle = begin(kind: .respond, prompt: nil, options: options, responseFormat: nil, includeSchema: nil)
@@ -2845,7 +2846,7 @@ public final class InspectedSession: Sendable {
 
     @_disfavoredOverload
     @discardableResult
-    public func respond(to prompt: String, options: GenerationOptions = GenerationOptions()) async throws
+    nonisolated(nonsending) public func respond(to prompt: String, options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<String> {
         guard recorder.isActive else { return try await base.respond(to: prompt, options: options) }
         let handle = begin(kind: .respond, prompt: prompt, options: options, responseFormat: nil, includeSchema: nil)
@@ -2857,7 +2858,7 @@ public final class InspectedSession: Sendable {
     }
 
     @discardableResult
-    public func respond<Content: Generable>(to prompt: Prompt, generating type: Content.Type = Content.self,
+    nonisolated(nonsending) public func respond<Content: Generable>(to prompt: Prompt, generating type: Content.Type = Content.self,
                                             includeSchemaInPrompt: Bool = true,
                                             options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<Content> {
@@ -2875,7 +2876,7 @@ public final class InspectedSession: Sendable {
 
     @_disfavoredOverload
     @discardableResult
-    public func respond<Content: Generable>(to prompt: String, generating type: Content.Type = Content.self,
+    nonisolated(nonsending) public func respond<Content: Generable>(to prompt: String, generating type: Content.Type = Content.self,
                                             includeSchemaInPrompt: Bool = true,
                                             options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<Content> {
@@ -2892,7 +2893,7 @@ public final class InspectedSession: Sendable {
     }
 
     @discardableResult
-    public func respond(to prompt: Prompt, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
+    nonisolated(nonsending) public func respond(to prompt: Prompt, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
                         options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<GeneratedContent> {
         guard recorder.isActive else {
@@ -2909,7 +2910,7 @@ public final class InspectedSession: Sendable {
 
     @_disfavoredOverload
     @discardableResult
-    public func respond(to prompt: String, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
+    nonisolated(nonsending) public func respond(to prompt: String, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
                         options: GenerationOptions = GenerationOptions()) async throws
         -> LanguageModelSession.Response<GeneratedContent> {
         guard recorder.isActive else {
@@ -3105,7 +3106,7 @@ public struct InspectedResponseStream<Content: Generable>: AsyncSequence {
     }
 
     /// Consume the whole stream (like the SDK's `collect()`).
-    public func collect() async throws -> LanguageModelSession.Response<Content> {
+    nonisolated(nonsending) public func collect() async throws -> LanguageModelSession.Response<Content> {
         guard let finalizer else { return try await base.collect() }
         do {
             let response = try await base.collect()
@@ -3126,10 +3127,11 @@ public struct InspectedResponseStream<Content: Generable>: AsyncSequence {
         var lastOutput: String?
         var isFinished = false
 
-        public mutating func next() async throws -> Element? {
+        // Mirrors the SDK: runs in the caller's isolation so non-Sendable Snapshots never cross a boundary.
+        public mutating func next(isolation actor: isolated (any Actor)? = #isolation) async throws -> Element? {
             if isFinished { return nil }
             do {
-                guard let snapshot = try await base.next() else {
+                guard let snapshot = try await base.next(isolation: actor) else {
                     isFinished = true
                     if let finalizer, finalizer.markDone() {
                         session.finishFromTranscript(finalizer.handle, output: lastOutput)
