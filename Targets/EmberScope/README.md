@@ -45,7 +45,8 @@ for try await snapshot in session.streamResponse(to: "Pack list?") { … } // sa
 let wrapped = LanguageModelSession(instructions: "…").inspected(label: "title")
 
 // 3. Show it
-ContentView().emberScope()                            // shake on iOS; EmberScope.present() from anywhere
+ContentView().emberScope()                            // ONCE per scene. Shake on iOS; EmberScope.present()
+                                                      // from any main-actor context
 WindowGroup { … }.commands { EmberScopeCommands() }   // Debug ▸ Ember Scope  ⌘⇧E
 ```
 
@@ -65,12 +66,13 @@ sessions, and pass tools there so their calls are timed. Return types are the SD
 
 ## API tour
 
-- `EmberScope.start(configuration:model:)` / `stop()` / `clear()` / `isRecording` / `isActive` / `configuration`
-  — `isActive` means *enabled and recording*, and is the gate for anything user-visible.
+- `EmberScope.start(configuration:model:)` / `stop()` / `clear()` / `isRecording` / `isEnabled` / `isActive`
+  / `configuration` — `isEnabled` is the master switch and the gate for PRESENTATION; `isActive` means
+  *enabled and recording* and gates the recording hot path.
 - `EmberScope.session(model:tools:instructions:label:)` (String and `Instructions` overloads),
   `EmberScope.session(model:tools:transcript:label:)` → `InspectedSession`
 - `InspectedSession` — `respond(to:options:)`, `respond(to:generating:includeSchemaInPrompt:options:)`,
-  `respond(to:schema:includeSchemaInPrompt:options:)`, the four `streamResponse` overloads,
+  `respond(to:schema:includeSchemaInPrompt:options:)`, the six `streamResponse` overloads,
   `prewarm(promptPrefix:)`, `transcript`, `isResponding`, `logFeedbackAttachment(sentiment:issues:desiredOutput:)`,
   `base` (the SDK session), `snapshotTranscript()`
 - `EmberScope.wrap(_:)` / `tool.inspected()` → `InspectedTool` (forwards `name`, `description`, `parameters`,
@@ -109,7 +111,8 @@ EmberScope.start(configuration: ScopeConfiguration(
 - OSLog receives metadata (lengths, counts, kinds, error categories); every free-form string — prompts, outputs,
   tool arguments, instructions, error messages **and note text** — is `.private` unless `logContent`.
 - No network capability, no entitlements, no dependencies beyond Apple frameworks.
-- Disabled outside DEBUG by default; when disabled every wrapper is a zero-cost pass-through.
+- Disabled outside DEBUG by default; when disabled every wrapper calls straight through to the SDK,
+  records nothing and allocates no per-request state (a session still allocates its observer once).
 
 ## How it works
 
@@ -128,21 +131,41 @@ flowchart LR
 call, records `ScopeEvent`s (session created, request started / progress / finished, tool call started /
 finished, error, transcript snapshot, exact token counts, model status, note) into a lock-protected ring
 buffer, and a main-actor store folds the log into records the UI observes. Token cost per transcript entry is
-estimated immediately (⌈chars / 3.5⌉ + one per CJK scalar) and replaced by `SystemLanguageModel.tokenCount(for:)`
-values asynchronously where available.
+estimated immediately (non-CJK characters divided by 3.5 and rounded up, plus one token per CJK scalar) and
+replaced by `SystemLanguageModel.tokenCount(for:)` values asynchronously where available.
 
 ## Limitations
 
-- Prompts passed as `Prompt` values (not `String`) have no readable text until the request completes; the text
-  is then recovered from the transcript. Pass a `String` to see it immediately.
+- Prompts passed as `Prompt` values (not `String`) have no readable text until the request completes
+  *successfully*; the text is then recovered from the transcript (a failed or cancelled request never
+  recovers it). Pass a `String` to see it immediately.
 - Wrapping an existing `LanguageModelSession` cannot time tool calls (tools are bound at construction); they
   still appear in the transcript. Use `EmberScope.session(tools:)` for live tool telemetry.
 - `Transcript.ToolDefinition` does not expose the schema, so schema JSON comes from the `Tool` instances you
   pass in (encoded with sorted keys, because `GenerationSchema` does not encode deterministically).
 - Tool definitions are counted inside the instructions entry; the separate tools figure is informational.
 - Exact token counts need 26.4+ and Apple Intelligence; the counter throws otherwise and estimates stand.
-- The shake hook overrides `UIWindow.motionEnded` for the whole app (the standard SwiftUI technique); it only
-  posts a notification, and the inspector opens only when `EmberScope.isActive`.
+- The shake hook overrides `UIWindow.motionEnded` for the whole app (the standard SwiftUI technique). The
+  override is compiled only into DEBUG builds of the library, it only posts a notification, and the
+  notification is not even posted unless `EmberScope.isEnabled`.
+- Presentation (`present()`, ⌘⇧E, shake) is gated on `EmberScope.isEnabled`, never on `isRecording`: a
+  **paused** inspector still opens — everything captured before the pause is still there, and the Record
+  button that resumes it lives in the console's toolbar. `isActive` (enabled AND recording) gates the
+  recording hot path only.
+- `stop()` during an in-flight request leaves that request permanently "in flight" in the console: the
+  finish event is never recorded, so the row has no terminal state.
+- Stream timing starts when `streamResponse` is CALLED, not at first iteration — a stream built and
+  awaited later reports the gap as part of its duration.
+- A failing tool produces TWO error rows: the tool's own failure and the request failure that carries it.
+- `InspectedSession` is not itself `@Observable`; `transcript` and `isResponding` forward to the SDK
+  session, which is, so SwiftUI tracking through the wrapper still works.
+- The model is always described as "SystemLanguageModel" — the SDK exposes no use-case accessor.
+- `TimelineView` inside the EmberScope module shadows `SwiftUI.TimelineView`; write `SwiftUI.TimelineView`
+  explicitly if you need Apple's inside this module.
+- Exact per-entry counts assume the SDK's count for the INSTRUCTIONS entry already includes that entry's
+  `toolDefinitions`, the way the estimate does. That is unverified on hardware (Apple Intelligence is not
+  enabled on the development Mac); if it turned out to be false, an exact total would under-report by the
+  tool-definition cost.
 
 ## Using EmberScope in your own project
 

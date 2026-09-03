@@ -57,6 +57,7 @@ struct UnavailableView: View {
     }
     /// The chat toolbar is unreachable while the model is unavailable, so keep the inspector — whose
     /// model card explains WHY — one tap away, with the same presentation ChatScene uses.
+    #if DEBUG
     private func openScope() {
         #if os(macOS)
         openWindow(id: emberScopeWindowID)
@@ -64,6 +65,7 @@ struct UnavailableView: View {
         EmberScope.present()
         #endif
     }
+    #endif
 
     private func openSettings() {
         #if canImport(UIKit)

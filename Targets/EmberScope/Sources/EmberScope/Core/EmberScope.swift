@@ -23,7 +23,11 @@ public enum EmberScope {
 
     public static var configuration: ScopeConfiguration { recorder.configuration }
     public static var isRecording: Bool { recorder.isRecording }
-    /// Enabled AND recording — the gate for anything user-visible (shake, buttons).
+    /// The master switch. This — never `isActive` — is the gate for PRESENTATION: a paused inspector
+    /// still has everything it captured before the pause, and the Record button that resumes it lives
+    /// inside the console.
+    public static var isEnabled: Bool { recorder.configuration.isEnabled }
+    /// Enabled AND recording — the gate for the recording hot path.
     public static var isActive: Bool { recorder.isActive }
 
     /// The single OSLog sink: installed once, reconfigured on every `start()` (disabled when `logToOSLog` is off).
@@ -96,7 +100,13 @@ public enum EmberScope {
 
     // MARK: Presentation
 
-    @MainActor public static func present() { store.isPresented = true }
+    /// Opens the console. A no-op when EmberScope is disabled (a Release build of the library, or a
+    /// host that turned it off) — but NOT when it is merely paused: the guard is applied here, once,
+    /// so no host call site has to remember it.
+    @MainActor public static func present() {
+        guard isEnabled else { return }
+        store.isPresented = true
+    }
     @MainActor public static func dismiss() { store.isPresented = false }
 }
 

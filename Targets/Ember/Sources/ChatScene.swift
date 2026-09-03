@@ -51,6 +51,7 @@ struct ChatScene: View {
         }
     }
 
+    #if DEBUG
     private func openScope() {
         #if os(macOS)
         openWindow(id: emberScopeWindowID)
@@ -58,4 +59,5 @@ struct ChatScene: View {
         EmberScope.present()
         #endif
     }
+    #endif
 }

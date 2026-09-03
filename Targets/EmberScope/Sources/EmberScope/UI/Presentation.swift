@@ -5,7 +5,10 @@ import UIKit
 
 public extension View {
     /// Attach the inspector: a sheet bound to `EmberScope.store.isPresented`, opened by
-    /// `EmberScope.present()` and — on iOS — by shaking the device while recording.
+    /// `EmberScope.present()` and — on iOS — by shaking the device.
+    ///
+    /// Attach this EXACTLY ONCE per scene: every copy binds the same `EmberScope.store.isPresented`,
+    /// so two of them present two sheets for one shake.
     func emberScope() -> some View { modifier(EmberScopeModifier()) }
 }
 
@@ -22,7 +25,7 @@ struct EmberScopeModifier: ViewModifier {
             }
         #if canImport(UIKit)
             .onReceive(NotificationCenter.default.publisher(for: .emberScopeShake)) { _ in
-                if EmberScope.isActive { store.isPresented = true }   // enabled AND recording — never in a disabled release build
+                EmberScope.present()   // `present()` carries the isEnabled guard; a PAUSED inspector still opens
             }
         #endif
     }
@@ -39,7 +42,8 @@ public struct EmberScopeCommands: Commands {
     public var body: some Commands {
         CommandMenu("Debug") {
             // Defense in depth: even a host that forgot #if DEBUG never opens a disabled inspector.
-            Button("Ember Scope") { if EmberScope.isActive { action() } }
+            // `isEnabled`, not `isActive` — pausing recording must not disable the menu item.
+            Button("Ember Scope") { if EmberScope.isEnabled { action() } }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
         }
     }
@@ -51,14 +55,19 @@ public extension Notification.Name {
     static let emberScopeShake = Notification.Name("dev.iosunpi.emberscope.shake")
 }
 
+#if DEBUG
+/// DEBUG only: this overrides a UIKit method for EVERY window in the host app, which is fine for a
+/// debug tool and not something to ship in Release — where `ScopeConfiguration.isEnabled` is false
+/// anyway, so the notification could never open anything.
 extension UIWindow {
     /// The standard SwiftUI shake hook: `motionEnded` is an Objective-C method, so overriding it in an
     /// extension is supported. Global for the app — acceptable for a debug tool.
     public override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
         super.motionEnded(motion, with: event)
-        if motion == .motionShake {
+        if motion == .motionShake, EmberScope.isEnabled {
             NotificationCenter.default.post(name: .emberScopeShake, object: nil)
         }
     }
 }
+#endif
 #endif

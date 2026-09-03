@@ -172,8 +172,15 @@ public final class ConversationEngine {
                 if attempt == 0, Self.isRetryable(chatError) {
                     attempt += 1
                     EmberLog.turn.notice("performTurn: transient error \(String(describing: chatError), privacy: .public) — retrying once")
-                    EmberScope.note("retrying after transient error: \(String(describing: chatError))",
-                                    session: session.inspectionID)
+                    // A note carries counts and CATEGORIES, never a message: `String(describing:)` on a
+                    // ChatError can interpolate the model's own text, and notes are not redacted.
+                    let category: String
+                    switch chatError {
+                    case .generationInterrupted: category = "generationInterrupted"
+                    case .rateLimited: category = "rateLimited"
+                    default: category = "transient"
+                    }
+                    EmberScope.note("retrying after transient error: \(category)", session: session.inspectionID)
                     if assistantIndex < messages.count { messages[assistantIndex].text = "" }
                     continue
                 }

@@ -86,10 +86,36 @@ struct EmberScopeFacadeTests {
     }
 
     @Test @MainActor func presentAndDismissToggleTheStore() {
+        defer { reset() }
+        EmberScope.start(configuration: ScopeConfiguration(isEnabled: true, logToOSLog: false))
         EmberScope.present()
         #expect(EmberScope.store.isPresented)
         EmberScope.dismiss()
         #expect(!EmberScope.store.isPresented)
+    }
+
+    /// Ruling (final review C1, amended by the UI review): presentation gates on `isEnabled` ONLY.
+    /// A PAUSED inspector must still open — everything captured before the pause is still there, and
+    /// the Record button that resumes it lives inside the console. `isActive` gates recording, not UI.
+    @Test @MainActor func presentationGatesOnEnabledNotOnRecording() {
+        // Leave the process-wide switch back on: the rest of the suite assumes an enabled inspector.
+        defer {
+            EmberScope.start(configuration: ScopeConfiguration(isEnabled: true, logToOSLog: false))
+            EmberScope.dismiss()
+            reset()
+        }
+        EmberScope.start(configuration: ScopeConfiguration(isEnabled: true, logToOSLog: false))
+        EmberScope.stop()
+        #expect(EmberScope.isEnabled && !EmberScope.isRecording && !EmberScope.isActive)
+        EmberScope.dismiss()
+        EmberScope.present()
+        #expect(EmberScope.store.isPresented, "a paused inspector must still open")
+
+        EmberScope.dismiss()
+        EmberScope.recorder.update(configuration: ScopeConfiguration(isEnabled: false))
+        #expect(!EmberScope.isEnabled)
+        EmberScope.present()
+        #expect(!EmberScope.store.isPresented, "a disabled inspector must never open")
     }
 
     @Test func modelStatusDescribesAvailability() {
