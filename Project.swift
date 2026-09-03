@@ -67,8 +67,10 @@ let project = Project(
             sources: ["Targets/EmberScope/Sources/**"],
             settings: .settings(base: [
                 // Keep the library adoptable by Swift-6-strict hosts even though this repo builds in
-                // Swift 5 language mode (warnings here, errors there).
+                // Swift 5 language mode (warnings here, errors there) — and make that real by failing
+                // the build on any warning, so the promise cannot rot one warning at a time.
                 "SWIFT_STRICT_CONCURRENCY": "complete",
+                "SWIFT_TREAT_WARNINGS_AS_ERRORS": "YES",
             ])
         ),
         .target(
@@ -78,7 +80,9 @@ let project = Project(
             bundleId: "dev.iosunpi.emberscope.tests",
             deploymentTargets: deployment,
             sources: ["Targets/EmberScope/Tests/**"],
-            dependencies: [.target(name: "EmberScope")]
+            dependencies: [.target(name: "EmberScope")],
+            // The suite exercises the same concurrency surface a Swift-6 host would.
+            settings: .settings(base: ["SWIFT_STRICT_CONCURRENCY": "complete"])
         ),
         .target(
             name: "Ember",

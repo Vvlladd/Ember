@@ -167,6 +167,7 @@ let package = Package(
 ```
 
 The manifest is not checked in here, because Tuist treats any nested `Package.swift` as a project manifest.
+The extraction was smoke-tested exactly that way — `Targets/EmberScope` copied out with the manifest above, then `swift build && swift test` — on macOS 26 / Xcode 26.6: both succeed with zero warnings in Swift 6 language mode, all 107 tests passing.
 
 Inside this repository, the suite runs as its own scheme:
 
