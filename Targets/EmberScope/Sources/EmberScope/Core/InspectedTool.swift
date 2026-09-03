@@ -1,8 +1,14 @@
 import Foundation
 import FoundationModels
 
-/// Lets `EmberScope.wrap` recognise tools that are already inspected.
-protocol InspectedToolMarker {}
+/// Lets `EmberScope.wrap` recognise tools that are already inspected — and re-bind one that was
+/// wrapped before the session existed (`EmberScope.session(tools: [MyTool().inspected()])`), whose
+/// calls would otherwise be recorded with `sessionID: nil`.
+protocol InspectedToolMarker {
+    var inspectedSessionID: UUID? { get }
+    /// A copy of this tool recording against `sessionID`. The wrapped tool and its recorder are kept.
+    func rebound(toSessionID sessionID: UUID?) -> any Tool
+}
 
 /// Wraps any `Tool`, forwarding its metadata and recording each call (arguments, output, duration,
 /// failures) into a `ScopeRecorder`. The model sees exactly the same tool definition.
@@ -30,6 +36,12 @@ public struct InspectedTool<Base: Tool>: Tool, InspectedToolMarker {
         self.now = now
     }
 
+    var inspectedSessionID: UUID? { sessionID }
+
+    func rebound(toSessionID sessionID: UUID?) -> any Tool {
+        InspectedTool(base, sessionID: sessionID, recorder: recorder, now: now)
+    }
+
     public var name: String { base.name }
     public var description: String { base.description }
     public var parameters: GenerationSchema { base.parameters }
@@ -51,7 +63,10 @@ public struct InspectedTool<Base: Tool>: Tool, InspectedToolMarker {
             return output
         } catch {
             var record = ScopeErrorClassifier.classify(error, toolCallID: callID, toolName: base.name)
-            if record.kind == .unknown { record.kind = .toolCallFailed }
+            if record.kind == .unknown {
+                record.kind = .toolCallFailed
+                record.isRetryable = record.kind.isRetryable   // the flag must follow the kind it describes
+            }
             recorder.record(.error(record), sessionID: sessionID)
             recorder.record(.toolCallFinished(ToolCallEnd(callID: callID, toolName: base.name,
                                                           status: .failed(errorID: record.id),
@@ -80,7 +95,12 @@ public extension EmberScope {
     }
 
     private static func wrapOne(_ tool: some Tool, sessionID: UUID?, recorder: ScopeRecorder) -> any Tool {
-        if tool is any InspectedToolMarker { return tool }
+        if let inspected = tool as? any InspectedToolMarker {
+            // Already inspected: never double-wrap, but DO re-bind a tool that was wrapped standalone,
+            // or its calls would land in the session-less bucket instead of on this session.
+            guard inspected.inspectedSessionID != sessionID else { return tool }
+            return inspected.rebound(toSessionID: sessionID)
+        }
         return InspectedTool(tool, sessionID: sessionID, recorder: recorder)
     }
 }

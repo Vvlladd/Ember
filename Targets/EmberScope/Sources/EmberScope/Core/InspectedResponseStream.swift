@@ -42,7 +42,7 @@ public struct InspectedResponseStream<Content: Generable>: AsyncSequence {
     }
 
     /// Consume the whole stream (like the SDK's `collect()`).
-    nonisolated(nonsending) public func collect() async throws -> LanguageModelSession.Response<Content> {
+    nonisolated(nonsending) public func collect() async throws -> sending LanguageModelSession.Response<Content> {
         guard let finalizer else { return try await base.collect() }
         do {
             let response = try await base.collect()

@@ -4,10 +4,11 @@ import Synchronization
 
 /// Pure request-lifecycle bookkeeping for one session: emits `requestStarted`, throttled
 /// `streamProgress`, `error` and `requestFinished` events with duration / time-to-first-token / chunk counts.
-/// Time is injected as a monotonic `Duration` so tests are deterministic.
-public final class RequestObserver: Sendable {
-    public struct Handle: Sendable, Hashable {
-        public let requestID: UUID
+/// Time is injected as a monotonic `Duration` so tests are deterministic. Internal: `InspectedSession`
+/// owns the lifecycle, and a host driving it directly would desynchronise the two.
+final class RequestObserver: Sendable {
+    struct Handle: Sendable, Hashable {
+        let requestID: UUID
         let startedAt: Duration
         let transcriptCountAtStart: Int
     }
@@ -21,24 +22,31 @@ public final class RequestObserver: Sendable {
 
     private let recorder: ScopeRecorder
     private let sessionID: UUID
-    private let progressInterval: Duration
+    /// Tests pin the interval; production leaves it nil and reads the recorder's CURRENT configuration
+    /// per chunk, so a later `EmberScope.start(configuration:)` reaches sessions that already exist.
+    private let progressIntervalOverride: Duration?
+    private var progressInterval: Duration {
+        progressIntervalOverride ?? recorder.configuration.streamProgressInterval
+    }
     private let now: @Sendable () -> Duration
     private let states = Mutex<[UUID: State]>([:])
 
-    public init(recorder: ScopeRecorder, sessionID: UUID, progressInterval: Duration = .milliseconds(250),
-                now: (@Sendable () -> Duration)? = nil) {
+    init(recorder: ScopeRecorder, sessionID: UUID, progressInterval: Duration? = nil,
+         now: (@Sendable () -> Duration)? = nil) {
         self.recorder = recorder
         self.sessionID = sessionID
-        self.progressInterval = progressInterval
+        self.progressIntervalOverride = progressInterval
         // `MonotonicClock.now` as an unapplied reference is a non-Sendable function value: converting
         // it warns under strict concurrency (same as `ScopeRecorder.clock`). The literal captures nothing.
         self.now = now ?? { MonotonicClock.now() }
     }
 
-    public func start(kind: RequestKind, prompt: String?, options: GenerationOptions, responseFormat: String?,
-                      includeSchemaInPrompt: Bool?, transcriptCount: Int) -> Handle {
+    func start(kind: RequestKind, prompt: String?, options: GenerationOptions, responseFormat: String?,
+               includeSchemaInPrompt: Bool?, transcriptCount: Int) -> Handle {
         let id = UUID()
         let t = now()
+        // Nothing to track when the recorder is off: no per-request state is allocated at all.
+        guard recorder.isActive else { return Handle(requestID: id, startedAt: t, transcriptCountAtStart: transcriptCount) }
         states.withLock { $0[id] = State() }
         recorder.record(.requestStarted(RequestStart(requestID: id, kind: kind, prompt: prompt,
                                                      options: RequestOptions(options), responseFormat: responseFormat,
@@ -49,8 +57,9 @@ public final class RequestObserver: Sendable {
 
     /// One streamed snapshot arrived. Emits `.streamProgress` at most once per `progressInterval`
     /// (the first chunk always emits).
-    public func chunk(_ handle: Handle, contentChars: Int) {
+    func chunk(_ handle: Handle, contentChars: Int) {
         let t = now()
+        let progressInterval = self.progressInterval
         let progress: RequestProgress? = states.withLock { dict in
             guard var s = dict[handle.requestID] else { return nil }
             s.chunkCount += 1
@@ -65,19 +74,19 @@ public final class RequestObserver: Sendable {
     }
 
     @discardableResult
-    public func finish(_ handle: Handle, output: String?, resolvedPrompt: String? = nil, transcriptCount: Int) -> RequestEnd {
+    func finish(_ handle: Handle, output: String?, resolvedPrompt: String? = nil, transcriptCount: Int) -> RequestEnd {
         end(handle, status: .succeeded, output: output, resolvedPrompt: resolvedPrompt, transcriptCount: transcriptCount)
     }
 
     @discardableResult
-    public func fail(_ handle: Handle, error: any Error, transcriptCount: Int) -> RequestEnd {
+    func fail(_ handle: Handle, error: any Error, transcriptCount: Int) -> RequestEnd {
         let record = ScopeErrorClassifier.classify(error, requestID: handle.requestID)
         recorder.record(.error(record), sessionID: sessionID)
         return end(handle, status: .failed(errorID: record.id), output: nil, resolvedPrompt: nil, transcriptCount: transcriptCount)
     }
 
     @discardableResult
-    public func cancel(_ handle: Handle, transcriptCount: Int) -> RequestEnd {
+    func cancel(_ handle: Handle, transcriptCount: Int) -> RequestEnd {
         end(handle, status: .cancelled, output: nil, resolvedPrompt: nil, transcriptCount: transcriptCount)
     }
 

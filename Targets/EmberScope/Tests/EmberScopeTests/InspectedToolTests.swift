@@ -80,4 +80,25 @@ struct InspectedToolTests {
         #expect(tool.name == "echo")
         #expect(tool.sessionID == Fixtures.sessionID)
     }
+
+    /// Ruling (final review B8): a tool wrapped BEFORE the session existed was returned untouched, so
+    /// `EmberScope.session(tools: [MyTool().inspected()])` recorded its calls with `sessionID: nil`.
+    @Test func aPreWrappedToolIsReboundToTheSessionItJoins() async throws {
+        let r = activeRecorder()
+        let session = InspectedSession(tools: [EchoTool().inspected(recorder: r)], label: "rebound",
+                                       recorder: r, counter: MockTokenCounter(supportsExactCounts: false))
+        let tool = try #require(session.tools.first as? InspectedTool<EchoTool>)
+        #expect(tool.sessionID == session.id)
+        _ = try await tool.call(arguments: .init(text: "hi"))
+        let toolEvents = r.snapshot().filter {
+            if case .toolCallStarted = $0.payload { return true }
+            if case .toolCallFinished = $0.payload { return true }
+            return false
+        }
+        #expect(toolEvents.count == 2)
+        #expect(toolEvents.allSatisfy { $0.sessionID == session.id })
+        // Re-binding to the SAME id is a no-op (no needless copy).
+        let same = EmberScope.wrap(session.tools, sessionID: session.id, recorder: r)
+        #expect((same.first as? InspectedTool<EchoTool>)?.sessionID == session.id)
+    }
 }

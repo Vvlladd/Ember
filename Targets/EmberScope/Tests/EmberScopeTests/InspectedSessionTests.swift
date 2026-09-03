@@ -1,7 +1,26 @@
 import Foundation
 import FoundationModels
+import Synchronization
 import Testing
 @testable import EmberScope
+
+/// Blocks every count until released, so "one exact-count resolver at a time" is observable.
+final class GatedTokenCounter: TokenCounting {
+    private let open = Mutex(false)
+    let supportsExactCounts = true
+    func release() { open.withLock { $0 = true } }
+
+    private func waitForRelease() async throws {
+        for _ in 0..<20_000 {
+            if Task.isCancelled { throw CancellationError() }
+            if open.withLock({ $0 }) { return }
+            await Task.yield()
+        }
+        throw TokenCountingError.unsupported   // never hang a test run
+    }
+    func count(entry: Transcript.Entry) async throws -> Int { try await waitForRelease(); return 7 }
+    func count(tools: [any Tool]) async throws -> Int { try await waitForRelease(); return 11 }
+}
 
 struct InspectedSessionTests {
     private func recorder() -> ScopeRecorder {
@@ -143,6 +162,104 @@ struct InspectedSessionTests {
         let session = InspectedSession(label: "quiet", recorder: r, counter: noExact)
         _ = try? await session.respond(to: "Say hi")
         #expect(r.snapshot().isEmpty)
+    }
+
+    /// Ruling (final review B4): `collect()` had no test at all, though it is the whole non-iterating
+    /// half of the streaming API. Runs with or without Apple Intelligence.
+    @Test func collectRecordsOneTerminalEventAndASnapshot() async {
+        let r = recorder()
+        let session = InspectedSession(label: "collect", recorder: r, counter: noExact)
+        _ = try? await session.streamResponse(to: "Say hi", options: GenerationOptions(maximumResponseTokens: 8)).collect()
+        let k = kinds(r)
+        guard let start = k.firstIndex(of: "start"), let end = k.firstIndex(of: "end") else {
+            Issue.record("no lifecycle"); return
+        }
+        #expect(start < end)
+        #expect(k.filter { $0 == "end" }.count == 1)          // exactly one terminal event
+        #expect(k.lastIndex(of: "snapshot")! > end)
+        guard case .requestStarted(let s) = r.snapshot()[start].payload,
+              case .requestFinished(let e) = r.snapshot()[end].payload else { Issue.record("shape"); return }
+        #expect(s.kind == .stream && s.prompt == "Say hi")
+        #expect(e.requestID == s.requestID)
+        if case .failed = e.status {
+            #expect(r.snapshot().contains { if case .error = $0.payload { return true } else { return false } })
+        } else {
+            #expect(e.status == .succeeded)
+        }
+    }
+
+    /// Ruling (final review B5): the `schema:` streaming overloads were missing even though the SDK
+    /// has both and EmberScope mirrors the `respond` pair.
+    @Test func schemaStreamOverloadsRecordTheirResponseFormat() async {
+        for prompt in ["String", "Prompt"] {
+            let r = recorder()
+            let session = InspectedSession(label: "schema-stream", recorder: r, counter: noExact)
+            let schema = EchoTool.Arguments.generationSchema
+            let stream = prompt == "String"
+                ? session.streamResponse(to: "Echo hi", schema: schema)
+                : session.streamResponse(to: Prompt("Echo hi"), schema: schema)
+            _ = try? await stream.collect()
+            let k = kinds(r)
+            guard let start = k.firstIndex(of: "start"), let end = k.firstIndex(of: "end") else {
+                Issue.record("no lifecycle for \(prompt)"); return
+            }
+            guard case .requestStarted(let s) = r.snapshot()[start].payload else { Issue.record("shape"); return }
+            #expect(s.kind == .stream)
+            #expect(s.responseFormat == "GenerationSchema")
+            #expect(s.includeSchemaInPrompt == true)
+            #expect(s.prompt == (prompt == "String" ? "Echo hi" : nil))
+            #expect(k.filter { $0 == "end" }.count == 1)
+            #expect(end > start)
+        }
+    }
+
+    /// Ruling (final review B16): `respond(to:schema:)` must report the same format as its stream twin.
+    @Test func respondWithSchemaRecordsGenerationSchemaFormat() async {
+        let r = recorder()
+        let session = InspectedSession(label: "schema", recorder: r, counter: noExact)
+        _ = try? await session.respond(to: "Echo hi", schema: EchoTool.Arguments.generationSchema)
+        guard let start = kinds(r).firstIndex(of: "start"),
+              case .requestStarted(let s) = r.snapshot()[start].payload else { Issue.record("no start"); return }
+        #expect(s.kind == .respond && s.responseFormat == "GenerationSchema")
+    }
+
+    /// Ruling (final review B16): breaking out of a stream mid-iteration must still produce exactly one
+    /// terminal event. Without Apple Intelligence the stream throws before yielding, which is the other
+    /// half of the same contract.
+    @Test func breakingOutOfAStreamStillRecordsOneTerminalEvent() async {
+        let r = recorder()
+        let session = InspectedSession(label: "broken", recorder: r, counter: noExact)
+        do {
+            for try await _ in session.streamResponse(to: "Say hi", options: GenerationOptions(maximumResponseTokens: 8)) {
+                break   // consumer walks away after the first snapshot
+            }
+        } catch { /* expected without Apple Intelligence */ }
+        let ends = r.snapshot().compactMap { if case .requestFinished(let e) = $0.payload { return e } else { return nil } }
+        #expect(ends.count == 1)
+        #expect(ends.first?.status == .cancelled || ends.first?.status == .succeeded
+                || { if case .failed = ends.first?.status { return true } else { return false } }())
+    }
+
+    /// Spec §7: one exact-count resolver at a time — a newer snapshot cancels the older resolve, whose
+    /// answer would describe a transcript that no longer exists.
+    @Test func onlyTheNewestSnapshotResolvesExactCounts() async {
+        let r = recorder()
+        let counter = GatedTokenCounter()
+        // Instructions AND a tool, so every resolver has something to count and blocks on the gate.
+        let session = InspectedSession(tools: [EchoTool()], instructions: "You are terse.", label: "resolve",
+                                       recorder: r, counter: counter)                     // resolver #1
+        session.snapshotTranscript()                                                      // #2 cancels #1
+        session.snapshotTranscript()                                                      // #3 cancels #2
+        counter.release()
+        let snapshots = r.snapshot().compactMap { if case .transcriptSnapshot(let s) = $0.payload { return s } else { return nil } }
+        #expect(snapshots.count == 3)
+        func resolved() -> [TokenCounts] {
+            r.snapshot().compactMap { if case .tokenCountsResolved(let c) = $0.payload { return c } else { return nil } }
+        }
+        for _ in 0..<10_000 where resolved().isEmpty { await Task.yield() }
+        for _ in 0..<500 { await Task.yield() }        // let any straggler record before asserting
+        #expect(resolved().count == 1)
+        #expect(resolved().first?.snapshotID == snapshots.last?.id)
     }
 
     @Test func feedbackAttachmentForwards() {

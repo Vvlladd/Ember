@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import Synchronization
 
 /// A `LanguageModelSession` that records what it does. Same API shape as the SDK class (create it the same
 /// way, call `respond` / `streamResponse` the same way, read `transcript` / `isResponding`), same return
@@ -17,6 +18,10 @@ public final class InspectedSession: Sendable {
     let recorder: ScopeRecorder
     let observer: RequestObserver
     let resolver: TokenCountResolver
+    /// Spec §7: at most ONE exact-count resolve in flight per session — a newer snapshot cancels the
+    /// older one, whose result would be stale anyway. `Mutex` is `~Copyable`, so nothing may capture
+    /// it; `snapshotTranscript` swaps the task out under the lock and cancels the previous one after.
+    private let inFlightResolve = Mutex<Task<Void, Never>?>(nil)
 
     public var transcript: Transcript { base.transcript }
     public var isResponding: Bool { base.isResponding }
@@ -32,8 +37,9 @@ public final class InspectedSession: Sendable {
         self.model = model
         self.tools = tools
         self.recorder = recorder
-        self.observer = RequestObserver(recorder: recorder, sessionID: id,
-                                        progressInterval: recorder.configuration.streamProgressInterval)
+        // No `progressInterval:` — the observer reads the recorder's CURRENT configuration per chunk,
+        // so a later `EmberScope.start(configuration:)` takes effect on sessions that already exist.
+        self.observer = RequestObserver(recorder: recorder, sessionID: id)
         self.resolver = TokenCountResolver(counter: counter ?? SystemTokenCounter(model: model), recorder: recorder)
         recordCreation(restoredFromTranscript: restoredFromTranscript)
     }
@@ -170,7 +176,7 @@ public final class InspectedSession: Sendable {
     }
 
     public func streamResponse(to prompt: Prompt, options: GenerationOptions = GenerationOptions())
-        -> InspectedResponseStream<String> {
+        -> sending InspectedResponseStream<String> {
         let handle = recorder.isActive
             ? begin(kind: .stream, prompt: nil, options: options, responseFormat: nil, includeSchema: nil) : nil
         return InspectedResponseStream(base: base.streamResponse(to: prompt, options: options), session: self, handle: handle)
@@ -178,7 +184,7 @@ public final class InspectedSession: Sendable {
 
     @_disfavoredOverload
     public func streamResponse(to prompt: String, options: GenerationOptions = GenerationOptions())
-        -> InspectedResponseStream<String> {
+        -> sending InspectedResponseStream<String> {
         let handle = recorder.isActive
             ? begin(kind: .stream, prompt: prompt, options: options, responseFormat: nil, includeSchema: nil) : nil
         return InspectedResponseStream(base: base.streamResponse(to: prompt, options: options), session: self, handle: handle)
@@ -187,7 +193,7 @@ public final class InspectedSession: Sendable {
     public func streamResponse<Content: Generable>(to prompt: Prompt, generating type: Content.Type = Content.self,
                                                    includeSchemaInPrompt: Bool = true,
                                                    options: GenerationOptions = GenerationOptions())
-        -> InspectedResponseStream<Content> {
+        -> sending InspectedResponseStream<Content> {
         let handle = recorder.isActive
             ? begin(kind: .stream, prompt: nil, options: options, responseFormat: String(describing: Content.self),
                     includeSchema: includeSchemaInPrompt) : nil
@@ -200,12 +206,35 @@ public final class InspectedSession: Sendable {
     public func streamResponse<Content: Generable>(to prompt: String, generating type: Content.Type = Content.self,
                                                    includeSchemaInPrompt: Bool = true,
                                                    options: GenerationOptions = GenerationOptions())
-        -> InspectedResponseStream<Content> {
+        -> sending InspectedResponseStream<Content> {
         let handle = recorder.isActive
             ? begin(kind: .stream, prompt: prompt, options: options, responseFormat: String(describing: Content.self),
                     includeSchema: includeSchemaInPrompt) : nil
         return InspectedResponseStream(
             base: base.streamResponse(to: prompt, generating: type, includeSchemaInPrompt: includeSchemaInPrompt, options: options),
+            session: self, handle: handle)
+    }
+
+    public func streamResponse(to prompt: Prompt, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
+                               options: GenerationOptions = GenerationOptions())
+        -> sending InspectedResponseStream<GeneratedContent> {
+        let handle = recorder.isActive
+            ? begin(kind: .stream, prompt: nil, options: options, responseFormat: "GenerationSchema",
+                    includeSchema: includeSchemaInPrompt) : nil
+        return InspectedResponseStream(
+            base: base.streamResponse(to: prompt, schema: schema, includeSchemaInPrompt: includeSchemaInPrompt, options: options),
+            session: self, handle: handle)
+    }
+
+    @_disfavoredOverload
+    public func streamResponse(to prompt: String, schema: GenerationSchema, includeSchemaInPrompt: Bool = true,
+                               options: GenerationOptions = GenerationOptions())
+        -> sending InspectedResponseStream<GeneratedContent> {
+        let handle = recorder.isActive
+            ? begin(kind: .stream, prompt: prompt, options: options, responseFormat: "GenerationSchema",
+                    includeSchema: includeSchemaInPrompt) : nil
+        return InspectedResponseStream(
+            base: base.streamResponse(to: prompt, schema: schema, includeSchemaInPrompt: includeSchemaInPrompt, options: options),
             session: self, handle: handle)
     }
 
@@ -227,9 +256,15 @@ public final class InspectedSession: Sendable {
         guard resolver.counter.supportsExactCounts else { return }
         let resolver = self.resolver
         let tools = self.tools
-        Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) {
             await resolver.resolve(snapshot: snapshot, transcript: transcript, tools: tools)
         }
+        let previous = inFlightResolve.withLock { current -> Task<Void, Never>? in
+            let previous = current
+            current = task
+            return previous
+        }
+        previous?.cancel()   // outside the lock: `cancel()` can run arbitrary cancellation handlers
     }
 
     private func recordCreation(restoredFromTranscript: Bool) {
