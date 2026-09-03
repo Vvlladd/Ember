@@ -180,7 +180,7 @@ Options are captured as plain values: `temperature`, `maximumResponseTokens`, an
 - `final class ScopeRecorder: Sendable` guarding `State { configuration, isRecording, nextSequence, events: Deque/ring, sinks }` with `Mutex`.
 - `record(_ payload:, sessionID:)` — assigns `sequence` and `timestamp` under the lock, appends (evicting beyond `maxEvents`), applies redaction when `captureContent == false` (content fields *and* the four free-form error strings; see Privacy), forwards to sinks **outside** the lock, and schedules a coalesced `@MainActor` flush (`store.refresh()`), so hot paths never touch the main actor synchronously.
 - `snapshot() -> [ScopeEvent]` (ordered), `clear()`, `setRecording(_:)`, `update(configuration:)`.
-- `protocol ScopeSink: Sendable { func receive(_ event: ScopeEvent) }`. Built-in `OSLogSink` (subsystem `dev.emberscope`, categories `Session`, `Request`, `Tool`, `Error`, `Tokens`, `Model`; metadata-only by default).
+- `protocol ScopeSink: Sendable { func receive(_ event: ScopeEvent) }`. Built-in `OSLogSink` (subsystem `dev.iosunpi.emberscope`, categories `Session`, `Request`, `Tool`, `Error`, `Tokens`, `Model`; metadata-only by default).
 - Disabled fast path: `isEnabled == false` → `record` returns immediately; wrappers still forward calls untouched.
 
 ### 5. `InspectedSession`, `InspectedResponseStream`, `RequestObserver`

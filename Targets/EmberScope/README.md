@@ -80,7 +80,7 @@ sessions, and pass tools there so their calls are timed. Return types are the SD
   `Notification.Name.emberScopeShake`
 - `EmberScope.refreshModelStatus(_:)` — re-capture availability after the user enables Apple Intelligence
 - `EmberScope.addSink(_:)` — implement `ScopeSink` to forward events anywhere; `OSLogSink` is built in
-  (`log stream --predicate 'subsystem == "dev.emberscope"' --info --debug`)
+  (`log stream --predicate 'subsystem == "dev.iosunpi.emberscope"' --info --debug`)
 - `ScopeExport.json(_:)` / `markdown(_:)` / `decode(_:)` over `ScopeArchive(projection: EmberScope.store.projection)`
 
 ### Configuration
@@ -103,8 +103,11 @@ EmberScope.start(configuration: ScopeConfiguration(
 
 - In memory only. Nothing is written to disk. Export is an explicit share-sheet action.
 - `captureContent: false` redacts prompts, outputs, tool arguments, transcript text **and** the free-form
-  error strings at record time; kinds, ids, the retryable flag and the underlying error chain remain.
-- OSLog receives metadata (lengths, counts, kinds, error categories); content is `.private` unless `logContent`.
+  error strings at record time; kinds, ids, lengths, the retryable flag and the underlying error chain remain.
+- **`EmberScope.note(…)` is the one exception: note text is kept verbatim even in metadata-only mode**, because
+  notes are developer annotations. Never put user content in a note.
+- OSLog receives metadata (lengths, counts, kinds, error categories); every free-form string — prompts, outputs,
+  tool arguments, instructions, error messages **and note text** — is `.private` unless `logContent`.
 - No network capability, no entitlements, no dependencies beyond Apple frameworks.
 - Disabled outside DEBUG by default; when disabled every wrapper is a zero-cost pass-through.
 

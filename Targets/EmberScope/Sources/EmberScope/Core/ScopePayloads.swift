@@ -47,14 +47,17 @@ public struct RequestStart: Sendable, Codable, Equatable {
     public var kind: RequestKind
     /// Known immediately for `String` prompts; nil for `Prompt` values (resolved at finish from the transcript).
     public var prompt: String?
+    /// Length of `prompt` BEFORE redaction, so metadata-only mode still reports the real size.
+    public var promptChars: Int
     public var options: RequestOptions
     /// Guided-generation type name (`String(describing: Content.self)`) or nil for plain text.
     public var responseFormat: String?
     public var includeSchemaInPrompt: Bool?
     public init(requestID: UUID, kind: RequestKind, prompt: String?, options: RequestOptions,
-                responseFormat: String?, includeSchemaInPrompt: Bool?) {
+                responseFormat: String?, includeSchemaInPrompt: Bool?, promptChars: Int? = nil) {
         self.requestID = requestID; self.kind = kind; self.prompt = prompt; self.options = options
         self.responseFormat = responseFormat; self.includeSchemaInPrompt = includeSchemaInPrompt
+        self.promptChars = promptChars ?? (prompt?.count ?? 0)
     }
 }
 
@@ -99,8 +102,11 @@ public struct ToolCallStart: Sendable, Codable, Equatable {
     public var toolName: String
     /// Arguments rendered as JSON when possible.
     public var arguments: String
-    public init(callID: UUID, toolName: String, arguments: String) {
+    /// Length of `arguments` BEFORE redaction.
+    public var argumentChars: Int
+    public init(callID: UUID, toolName: String, arguments: String, argumentChars: Int? = nil) {
         self.callID = callID; self.toolName = toolName; self.arguments = arguments
+        self.argumentChars = argumentChars ?? arguments.count
     }
 }
 
@@ -115,8 +121,12 @@ public struct ToolCallEnd: Sendable, Codable, Equatable {
     public var status: ToolCallStatus
     public var duration: Duration
     public var output: String?
-    public init(callID: UUID, toolName: String, status: ToolCallStatus, duration: Duration, output: String?) {
-        self.callID = callID; self.toolName = toolName; self.status = status; self.duration = duration; self.output = output
+    /// Length of `output` BEFORE redaction.
+    public var outputChars: Int
+    public init(callID: UUID, toolName: String, status: ToolCallStatus, duration: Duration, output: String?,
+                outputChars: Int? = nil) {
+        self.callID = callID; self.toolName = toolName; self.status = status; self.duration = duration
+        self.output = output; self.outputChars = outputChars ?? (output?.count ?? 0)
     }
 }
 

@@ -48,7 +48,7 @@ public struct EmberScopeCommands: Commands {
 #if canImport(UIKit)
 public extension Notification.Name {
     /// Posted on shake. Observed by `.emberScope()`; observe it yourself for custom presentation.
-    static let emberScopeShake = Notification.Name("dev.emberscope.shake")
+    static let emberScopeShake = Notification.Name("dev.iosunpi.emberscope.shake")
 }
 
 extension UIWindow {

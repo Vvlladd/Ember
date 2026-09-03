@@ -142,7 +142,7 @@ Public projects earn trust by being explicit about boundaries:
 - EmbeddingGemma weights are **not committed**. Contributors fetch them locally and any distribution that bundles them must comply with the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) and [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy).
 - Ember uses only the local tokenizer API from `swift-transformers`, but that package exposes one umbrella `Transformers` product and therefore links a dormant Hugging Face Hub client. Ember does not call that client and has no network entitlement.
 - Developer diagnostics currently write some short user-derived strings to Apple's local Unified Logging with public visibility. Do not share raw logs containing personal data; production distribution should gate or redact this instrumentation.
-- EmberScope keeps everything it captures in memory, never writes to disk, and logs metadata only unless a developer opts into content logging. Every EmberScope surface in the Ember app is compiled out of Release builds.
+- EmberScope keeps everything it captures in memory, never writes to disk, and logs metadata only unless a developer opts into content logging. Its metadata-only mode (`captureContent: false`) redacts prompts, outputs, tool arguments, transcript text and error strings; the one thing it keeps verbatim is `EmberScope.note` text, which is a developer annotation and must never carry user content. Every app-side EmberScope surface is compiled out of Release builds.
 
 ## Requirements
 

@@ -100,8 +100,49 @@ struct ScopeRecorderTests {
         sink.receive(Fixtures.event(.requestFinished(Fixtures.requestEnd)))
         sink.receive(Fixtures.event(.error(Fixtures.errorRecord)))
         sink.receive(Fixtures.event(.note("n")))
-        // Default sink (logContent: false) so the error path's .private branch runs too.
+        // Default sink (logContent: false) so the .private branches run too.
         OSLogSink().receive(Fixtures.event(.error(Fixtures.errorRecord)))
-        #expect(OSLogSink.subsystem == "dev.emberscope")
+        OSLogSink().receive(Fixtures.event(.note("n")))
+        #expect(OSLogSink.subsystem == "dev.iosunpi.emberscope")
+    }
+
+    /// Ruling (final review A1/B1): note text used to be interpolated `.public` in the metadata line.
+    /// OSLog privacy annotations are not observable from a test process, so the gate is pinned where it
+    /// is decided — `receive` logs every string `contentFields` returns (and only those) through
+    /// `content(...)`, which is `.private` unless `logContent`.
+    @Test func noteTextIsGatedLikeEveryOtherUserDerivedString() {
+        #expect(OSLogSink.contentFields(of: .note("the user's secret")) ==
+                [OSLogSink.ContentField(category: .session, label: "note", text: "the user's secret")])
+        #expect(OSLogSink.contentFields(of: .sessionCreated(Fixtures.sessionInfo)).map(\.text) == ["You are terse."])
+        #expect(OSLogSink.contentFields(of: .requestStarted(Fixtures.requestStart)).map(\.text) == ["Hello there"])
+        #expect(OSLogSink.contentFields(of: .requestFinished(Fixtures.requestEnd)).map(\.text) == ["Hi!"])
+        let call = ToolCallStart(callID: Fixtures.callID, toolName: "echo", arguments: "{\"text\":\"hi\"}")
+        #expect(OSLogSink.contentFields(of: .toolCallStarted(call)).map(\.label) == ["arguments"])
+        #expect(OSLogSink.contentFields(of: .toolCallFinished(ToolCallEnd(callID: Fixtures.callID, toolName: "echo",
+                                                                          status: .succeeded, duration: .zero,
+                                                                          output: "echo: hi"))).map(\.text) == ["echo: hi"])
+        // Metadata-only payloads contribute nothing to the gated path.
+        #expect(OSLogSink.contentFields(of: .prewarm).isEmpty)
+        #expect(OSLogSink.contentFields(of: .modelStatus(ModelStatus(availability: "a", isAvailable: true, contextSize: 1,
+                                                                     supportsExactTokenCounts: false,
+                                                                     supportedLanguageCount: 1, osVersion: "26"))).isEmpty)
+    }
+
+    /// Ruling (final review B10): the OSLog length metadata must measure the ORIGINAL string, so a
+    /// metadata-only run still reports real sizes instead of the placeholder's length.
+    @Test func redactionKeepsPreRedactionLengths() {
+        let r = recorder(ScopeConfiguration(isEnabled: true, captureContent: false))
+        guard case .requestStarted(let start)? = r.record(.requestStarted(Fixtures.requestStart))?.payload
+        else { Issue.record("wrong payload"); return }
+        #expect(start.promptChars == 11 && ScopeRedaction.isRedacted(start.prompt ?? ""))
+        let call = ToolCallStart(callID: Fixtures.callID, toolName: "echo", arguments: "{\"text\":\"hi\"}")
+        guard case .toolCallStarted(let s)? = r.record(.toolCallStarted(call))?.payload
+        else { Issue.record("wrong payload"); return }
+        #expect(s.argumentChars == call.arguments.count && ScopeRedaction.isRedacted(s.arguments))
+        let end = ToolCallEnd(callID: Fixtures.callID, toolName: "echo", status: .succeeded,
+                              duration: .milliseconds(1), output: "echo: hi")
+        guard case .toolCallFinished(let e)? = r.record(.toolCallFinished(end))?.payload
+        else { Issue.record("wrong payload"); return }
+        #expect(e.outputChars == 8 && ScopeRedaction.isRedacted(e.output ?? ""))
     }
 }

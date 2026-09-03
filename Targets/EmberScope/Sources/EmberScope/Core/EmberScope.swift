@@ -81,6 +81,10 @@ public enum EmberScope {
     // MARK: Annotations & status
 
     /// App-level annotation shown in the timeline (and on the session when `session` is given).
+    ///
+    /// Notes are developer annotations, so the text is recorded **verbatim even in metadata-only mode**
+    /// (`captureContent: false` does not redact it). Put counts, kinds and ids in a note — never user
+    /// content. In the unified log the text still takes the `logContent` gate like any other string.
     public static func note(_ text: String, session: UUID? = nil) {
         recorder.record(.note(text), sessionID: session)
     }

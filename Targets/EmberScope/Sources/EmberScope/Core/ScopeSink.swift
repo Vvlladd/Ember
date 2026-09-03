@@ -3,6 +3,9 @@ import os
 import Synchronization
 
 /// Receives every recorded event synchronously (outside the recorder's lock). Must be cheap and thread-safe.
+///
+/// A sink must never call `ScopeRecorder.record` (directly or indirectly): `record` delivers to every sink,
+/// so a sink that records would recurse without bound.
 public protocol ScopeSink: Sendable {
     func receive(_ event: ScopeEvent)
 }
@@ -13,9 +16,9 @@ enum ScopeDiagnostics {
 }
 
 /// Unified-logging sink. Metadata only by default; content is interpolated `.private` unless `logContent`.
-/// Filter: `log stream --predicate 'subsystem == "dev.emberscope"' --info --debug`
+/// Filter: `log stream --predicate 'subsystem == "dev.iosunpi.emberscope"' --info --debug`
 public final class OSLogSink: ScopeSink {
-    public static let subsystem = "dev.emberscope"
+    public static let subsystem = "dev.iosunpi.emberscope"
     private let session = Logger(subsystem: OSLogSink.subsystem, category: "Session")
     private let request = Logger(subsystem: OSLogSink.subsystem, category: "Request")
     private let tool = Logger(subsystem: OSLogSink.subsystem, category: "Tool")
@@ -45,23 +48,18 @@ public final class OSLogSink: ScopeSink {
         switch event.payload {
         case .sessionCreated(let info):
             session.info("[\(sid, privacy: .public)] created label=\(info.label, privacy: .public) tools=\(info.tools.count) contextSize=\(info.contextSize) restored=\(info.restoredFromTranscript)")
-            content(session, "instructions", info.instructions, logContent: logContent)
         case .prewarm:
             session.debug("[\(sid, privacy: .public)] prewarm")
         case .requestStarted(let r):
-            request.info("[\(sid, privacy: .public)] \(r.kind.rawValue, privacy: .public) start id=\(r.requestID.uuidString.prefix(8), privacy: .public) promptChars=\(r.prompt?.count ?? -1) format=\(r.responseFormat ?? "text", privacy: .public) temp=\(r.options.temperature ?? -1) maxTokens=\(r.options.maximumResponseTokens ?? -1) sampling=\(r.options.samplingDescription, privacy: .public)")
-            content(request, "prompt", r.prompt, logContent: logContent)
+            request.info("[\(sid, privacy: .public)] \(r.kind.rawValue, privacy: .public) start id=\(r.requestID.uuidString.prefix(8), privacy: .public) promptChars=\(r.promptChars) format=\(r.responseFormat ?? "text", privacy: .public) temp=\(r.options.temperature ?? -1) maxTokens=\(r.options.maximumResponseTokens ?? -1) sampling=\(r.options.samplingDescription, privacy: .public)")
         case .streamProgress(let p):
             request.debug("[\(sid, privacy: .public)] progress id=\(p.requestID.uuidString.prefix(8), privacy: .public) chunks=\(p.chunkCount) chars=\(p.contentChars)")
         case .requestFinished(let e):
             request.info("[\(sid, privacy: .public)] finished id=\(e.requestID.uuidString.prefix(8), privacy: .public) status=\(String(describing: e.status), privacy: .public) duration=\(String(describing: e.duration), privacy: .public) ttft=\(e.timeToFirstToken.map { String(describing: $0) } ?? "-", privacy: .public) chunks=\(e.chunkCount) outputChars=\(e.outputChars) appended=\(e.appendedEntryCount)")
-            content(request, "output", e.output, logContent: logContent)
         case .toolCallStarted(let t):
-            tool.info("[\(sid, privacy: .public)] call \(t.toolName, privacy: .public) id=\(t.callID.uuidString.prefix(8), privacy: .public) argChars=\(t.arguments.count)")
-            content(tool, "arguments", t.arguments, logContent: logContent)
+            tool.info("[\(sid, privacy: .public)] call \(t.toolName, privacy: .public) id=\(t.callID.uuidString.prefix(8), privacy: .public) argChars=\(t.argumentChars)")
         case .toolCallFinished(let t):
-            tool.info("[\(sid, privacy: .public)] \(t.toolName, privacy: .public) \(String(describing: t.status), privacy: .public) duration=\(String(describing: t.duration), privacy: .public) outputChars=\(t.output?.count ?? 0)")
-            content(tool, "output", t.output, logContent: logContent)
+            tool.info("[\(sid, privacy: .public)] \(t.toolName, privacy: .public) \(String(describing: t.status), privacy: .public) duration=\(String(describing: t.duration), privacy: .public) outputChars=\(t.outputChars)")
         case .error(let e):
             // kind / retryable / tool / chain are structured metadata; message + debugDescription can quote
             // prompt text (see ScopeRedaction), so they follow the logContent gate like every content field.
@@ -79,14 +77,58 @@ public final class OSLogSink: ScopeSink {
             tokens.info("[\(sid, privacy: .public)] exact counts resolved entries=\(c.entryTokens.count) tools=\(c.toolsTokens ?? -1)")
         case .modelStatus(let m):
             model.info("availability=\(m.availability, privacy: .public) contextSize=\(m.contextSize) exactTokens=\(m.supportsExactTokenCounts) languages=\(m.supportedLanguageCount) os=\(m.osVersion, privacy: .public)")
+        case .note:
+            // The text itself is a content field (below): notes are developer annotations, but a host
+            // could still put user text in one, so it takes the same `logContent` gate as a prompt.
+            session.info("[\(sid, privacy: .public)] note")
+        }
+        for field in Self.contentFields(of: event.payload) {
+            content(logger(for: field.category), field.label, field.text, logContent: logContent)
+        }
+    }
+
+    enum Category: Sendable, Equatable { case session, request, tool }
+
+    /// One free-form, user-derived string carried by a payload.
+    struct ContentField: Sendable, Equatable {
+        var category: Category
+        var label: String
+        var text: String
+    }
+
+    /// Every user-derived string `receive` logs through the `logContent` gate — `.private` unless the
+    /// developer opted in. The metadata lines `receive` interpolates `.public` carry only lengths,
+    /// counts, ids, kinds and tool names; the sole exception is `.error`, whose `message` / `debug`
+    /// take the same gate inline so its structured fields stay on one searchable line.
+    static func contentFields(of payload: ScopePayload) -> [ContentField] {
+        switch payload {
+        case .sessionCreated(let info):
+            return info.instructions.map { [ContentField(category: .session, label: "instructions", text: $0)] } ?? []
+        case .requestStarted(let r):
+            return r.prompt.map { [ContentField(category: .request, label: "prompt", text: $0)] } ?? []
+        case .requestFinished(let e):
+            return e.output.map { [ContentField(category: .request, label: "output", text: $0)] } ?? []
+        case .toolCallStarted(let t):
+            return [ContentField(category: .tool, label: "arguments", text: t.arguments)]
+        case .toolCallFinished(let t):
+            return t.output.map { [ContentField(category: .tool, label: "output", text: $0)] } ?? []
         case .note(let text):
-            session.info("[\(sid, privacy: .public)] note: \(text, privacy: .public)")
+            return [ContentField(category: .session, label: "note", text: text)]
+        case .prewarm, .streamProgress, .error, .transcriptSnapshot, .tokenCountsResolved, .modelStatus:
+            return []
+        }
+    }
+
+    private func logger(for category: Category) -> Logger {
+        switch category {
+        case .session: session
+        case .request: request
+        case .tool: tool
         }
     }
 
     /// User-derived content: `.private` unless the developer opted into `logContent`.
-    private func content(_ logger: Logger, _ label: String, _ text: String?, logContent: Bool) {
-        guard let text else { return }
+    private func content(_ logger: Logger, _ label: String, _ text: String, logContent: Bool) {
         if logContent {
             logger.debug("\(label, privacy: .public): \(text, privacy: .public)")
         } else {
