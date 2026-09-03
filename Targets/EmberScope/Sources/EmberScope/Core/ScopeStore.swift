@@ -141,6 +141,10 @@ public final class ScopeStore {
 
     /// Monotonic guard: a slower older fold must never overwrite a newer projection.
     @ObservationIgnored private var requestedGeneration: UInt64 = 0
+    /// Test seam only: awaited inside the detached fold AFTER the snapshot has been taken and folded,
+    /// so a test can hold an older fold back until a newer one has landed and prove the generation
+    /// guard below skips it. Never set in production.
+    @ObservationIgnored var foldGateForTesting: (@Sendable () async -> Void)?
     @ObservationIgnored private var appliedGeneration: UInt64 = 0
 
     public var sessions: [SessionRecord] { projection.sessions }
@@ -171,8 +175,11 @@ public final class ScopeStore {
         let generation = requestedGeneration
         let recorder = self.recorder
         let maxSessions = recorder.configuration.maxSessions
+        let gate = foldGateForTesting
         let folded = await Task.detached(priority: .utility) {
-            ScopeStore.fold(recorder.snapshot(), maxSessions: maxSessions)
+            let folded = ScopeStore.fold(recorder.snapshot(), maxSessions: maxSessions)
+            await gate?()
+            return folded
         }.value
         guard generation > appliedGeneration else { return }
         appliedGeneration = generation

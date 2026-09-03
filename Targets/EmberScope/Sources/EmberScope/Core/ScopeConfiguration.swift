@@ -2,7 +2,7 @@ import Foundation
 
 /// Runtime knobs for EmberScope. Value type; the live copy lives in `ScopeRecorder`.
 public struct ScopeConfiguration: Sendable, Equatable {
-    /// Master switch. When false every wrapper is a zero-cost pass-through and nothing is recorded.
+    /// Master switch. When false every wrapper records nothing and allocates no per-request state.
     public var isEnabled: Bool
     /// Ring-buffer capacity for events; oldest are evicted first.
     public var maxEvents: Int

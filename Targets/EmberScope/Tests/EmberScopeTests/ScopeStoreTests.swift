@@ -221,16 +221,23 @@ struct ScopeStoreTests {
     }
 
     /// Ruling (final review B3): the fold runs off the main actor, so two overlapping refreshes can
-    /// land out of order — a stale one must never overwrite a newer projection.
+    /// land out of order — a stale one must never overwrite a newer projection. The first fold is held
+    /// in the test gate (after it has snapshotted only "first") until a newer fold has landed; when it
+    /// is released it must be skipped, not applied.
     @Test func aStaleRefreshNeverOverwritesANewerProjection() async {
         let r = ScopeRecorder(configuration: ScopeConfiguration(isEnabled: true), isRecording: true)
         let store = ScopeStore(recorder: r)
+        let gate = FoldGate()
+        store.foldGateForTesting = { await gate.hold() }
         r.record(.note("first"))
-        async let a: Void = store.refresh()
+        let stale = Task { @MainActor in await store.refresh() }   // fold 1 snapshots ["first"], then waits
+        await gate.waitUntilHeld()
         r.record(.note("second"))
-        async let b: Void = store.refresh()
-        _ = await (a, b)
+        await store.refresh()                                       // fold 2 passes the gate and lands
         #expect(store.notes.map(\.text) == ["first", "second"])
+        await gate.release()
+        await stale.value                                           // fold 1 finishes late …
+        #expect(store.notes.map(\.text) == ["first", "second"])   // … and is skipped as stale
     }
 
     @Test func flushHandlerRefreshesAsynchronously() async {
@@ -239,5 +246,35 @@ struct ScopeStoreTests {
         r.record(.note("hello"))
         for _ in 0..<50 where store.notes.isEmpty { await Task.yield() }
         #expect(store.notes.map(\.text) == ["hello"])
+    }
+}
+
+/// Holds the FIRST caller until `release()`; every later caller passes straight through.
+private actor FoldGate {
+    private var calls = 0
+    private var held = false
+    private var released = false
+    private var heldWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func hold() async {
+        calls += 1
+        guard calls == 1 else { return }
+        held = true
+        heldWaiters.forEach { $0.resume() }
+        heldWaiters.removeAll()
+        guard !released else { return }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func waitUntilHeld() async {
+        guard !held else { return }
+        await withCheckedContinuation { heldWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        releaseWaiters.forEach { $0.resume() }
+        releaseWaiters.removeAll()
     }
 }

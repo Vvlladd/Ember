@@ -110,7 +110,7 @@ Ember ships with [EmberScope](Targets/EmberScope/README.md), a drop-in debug ins
 |---|---|
 | ![EmberScope's session detail showing the session header, 559 of 4,096 context tokens used with an estimated badge, tool definitions counted inside the instructions entry, and the start of Ember's registered tools list](docs/screenshots/emberscope-session-detail.png) | ![EmberScope's timeline listing a context snapshot, a failed request at 157 ms, a classified model-assets-unavailable error, a stream start, a retrieval note, and a prewarm](docs/screenshots/emberscope-timeline.png) |
 
-*The two totals differ because they count different text at different moments: Ember's gauge adds one budget line per tool from `Toolbox.accountingMetadata`'s digest (`name + description + String(describing:)` of the `GenerationSchema`) alongside the transcript entries and the reply it is about to send, while EmberScope folds the tool definitions into the instructions entry — where the model actually receives them — using the schema encoded as JSON, and counts only what the SDK's transcript holds right now.*
+*The two totals differ because they count different text at different moments: Ember's gauge adds one budget line per tool from `Toolbox.accountingMetadata`'s digest (`name + description + String(describing:)` of the `GenerationSchema`) alongside Ember's own context entries (its projection of the conversation), while EmberScope folds the tool definitions into the instructions entry — where the model actually receives them — using the schema encoded as JSON, and counts only what the SDK's transcript holds right now.*
 
 ```swift
 #if DEBUG

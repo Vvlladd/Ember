@@ -3,8 +3,8 @@ import Foundation
 /// One-line renderings of a `ScopePayload`, shared by the timeline, the event detail screen and the
 /// fold (which precomputes them once per event so search does not rebuild them per keystroke). Pure
 /// and UI-framework-free, so it lives beside the model rather than in the SwiftUI layer.
-public enum ScopeEventSummary {
-    public static func title(for payload: ScopePayload) -> String {
+enum ScopeEventSummary {
+    static func title(for payload: ScopePayload) -> String {
         switch payload {
         case .sessionCreated(let i): "Session created · \(i.label)"
         case .prewarm: "Prewarm"
@@ -26,7 +26,7 @@ public enum ScopeEventSummary {
         }
     }
 
-    public static func subtitle(for payload: ScopePayload) -> String? {
+    static func subtitle(for payload: ScopePayload) -> String? {
         switch payload {
         case .requestStarted(let r): r.prompt.map { ScopeFormatting.preview($0) }
         case .requestFinished(let e): e.output.map { ScopeFormatting.preview($0) }

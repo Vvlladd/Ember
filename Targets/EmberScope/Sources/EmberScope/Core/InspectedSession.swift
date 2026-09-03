@@ -256,6 +256,10 @@ public final class InspectedSession: Sendable {
         guard resolver.counter.supportsExactCounts else { return }
         let resolver = self.resolver
         let tools = self.tools
+        // The task is created before the lock below is taken, so two genuinely concurrent snapshots whose
+        // lock acquisitions invert relative to their `record` order could keep the older resolver alive.
+        // Bounded and safe: the fold only applies counts whose snapshotID is the session's LATEST snapshot,
+        // so the worst case is a turn that keeps its estimates. Request lifecycles are serialized in practice.
         let task = Task.detached(priority: .utility) {
             await resolver.resolve(snapshot: snapshot, transcript: transcript, tools: tools)
         }

@@ -24,7 +24,7 @@ its options, timing and output, every tool call with arguments and results, and 
 *Captured on an iPad Pro simulator, which reports the model as available but has no on-device model assets —
 which is why the run above ends in a classified `assetsUnavailable` error instead of a reply.*
 
-*The two totals differ because they count different text at different moments: Ember's gauge adds one budget line per tool from `Toolbox.accountingMetadata`'s digest (`name + description + String(describing:)` of the `GenerationSchema`) alongside the transcript entries and the reply it is about to send, while EmberScope folds the tool definitions into the instructions entry — where the model actually receives them — using the schema encoded as JSON, and counts only what the SDK's transcript holds right now.*
+*The two totals differ because they count different text at different moments: Ember's gauge adds one budget line per tool from `Toolbox.accountingMetadata`'s digest (`name + description + String(describing:)` of the `GenerationSchema`) alongside Ember's own context entries (its projection of the conversation), while EmberScope folds the tool definitions into the instructions entry — where the model actually receives them — using the schema encoded as JSON, and counts only what the SDK's transcript holds right now.*
 
 ## Quick start
 
