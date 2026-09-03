@@ -48,12 +48,20 @@ public struct TranscriptSnapshot: Sendable, Codable, Equatable, Identifiable {
     /// Cost of the tool definitions (name + description + schema). Informational: the model receives
     /// them inside the instructions entry, whose count already includes them — never add this to `usedTokens`.
     public var toolsTokens: Int?
+    /// True when `toolsTokens` was derived from real `Tool` values (name + description + schema JSON),
+    /// false when only the transcript's `toolDefinitions` were available (name + description), which
+    /// makes the figure a LOWER BOUND. The UI labels the two cases differently.
+    public var toolSchemasIncluded: Bool
 
-    public init(id: UUID = UUID(), sessionID: UUID, takenAt: Date, contextSize: Int, entries: [ScopeEntry], toolsTokens: Int?) {
+    public init(id: UUID = UUID(), sessionID: UUID, takenAt: Date, contextSize: Int, entries: [ScopeEntry],
+                toolsTokens: Int?, toolSchemasIncluded: Bool = false) {
         self.id = id; self.sessionID = sessionID; self.takenAt = takenAt
         self.contextSize = contextSize; self.entries = entries; self.toolsTokens = toolsTokens
+        self.toolSchemasIncluded = toolSchemasIncluded
     }
 
+    /// An empty transcript is never "exact": there is nothing to count, and `applying` can never make
+    /// it true (it only upgrades entries that exist), so a fresh session reads as an estimate.
     public var isExact: Bool { !entries.isEmpty && entries.allSatisfy(\.isExact) }
     public var usedTokens: Int { entries.reduce(0) { $0 + $1.tokens } }
     public var remainingTokens: Int { max(0, contextSize - usedTokens) }
@@ -65,6 +73,12 @@ public struct TranscriptSnapshot: Sendable, Codable, Equatable, Identifiable {
 
     /// Replace estimates with exact counts for matching entry ids. Unknown ids are ignored; a nil
     /// `toolsTokens` keeps the current value.
+    ///
+    /// ASSUMPTION (unverified on hardware — Apple Intelligence is not enabled on the development Mac):
+    /// the SDK's per-entry `tokenCount(for:)` for the INSTRUCTIONS entry is taken to already include
+    /// that entry's `toolDefinitions`, exactly as the estimate does. If it did not, `usedTokens` would
+    /// under-report by the tool-definition cost once counts are marked exact. No defensive arithmetic
+    /// is applied here: adding `toolsTokens` on a hunch would relabel a guess as an exact count.
     public func applying(_ counts: TokenCounts) -> TranscriptSnapshot {
         var copy = self
         copy.entries = entries.map { entry in
@@ -141,6 +155,9 @@ public extension TranscriptSnapshot {
     static func make(from transcript: Transcript, sessionID: UUID, contextSize: Int, tools: [any Tool] = [],
                      takenAt: Date = Date(), estimator: ScopeTokenEstimator = ScopeTokenEstimator()) -> TranscriptSnapshot {
         var toolsTokens: Int? = nil
+        // Real `Tool` values carry their parameter schema; the transcript's `ToolDefinition` does not,
+        // so a snapshot made without them can only produce a lower bound.
+        let toolSchemasIncluded = !tools.isEmpty
         let entries = transcript.map { entry -> ScopeEntry in
             switch entry {
             case .instructions(let i):
@@ -179,6 +196,7 @@ public extension TranscriptSnapshot {
             }
         }
         return TranscriptSnapshot(sessionID: sessionID, takenAt: takenAt, contextSize: contextSize,
-                                  entries: entries, toolsTokens: toolsTokens)
+                                  entries: entries, toolsTokens: toolsTokens,
+                                  toolSchemasIncluded: toolSchemasIncluded)
     }
 }

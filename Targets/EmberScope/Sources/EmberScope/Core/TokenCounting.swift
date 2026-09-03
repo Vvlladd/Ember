@@ -22,6 +22,9 @@ public struct SystemTokenCounter: TokenCounting {
         return false
     }
 
+    /// ASSUMPTION (unverified on hardware): for an `.instructions` entry the SDK's count is taken to
+    /// include that entry's `toolDefinitions`, the way `TranscriptSnapshot`'s estimate does — so the
+    /// exact and estimated totals mean the same thing. See `TranscriptSnapshot.applying(_:)`.
     public func count(entry: Transcript.Entry) async throws -> Int {
         guard #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) else { throw TokenCountingError.unsupported }
         return try await model.tokenCount(for: [entry])

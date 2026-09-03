@@ -3,11 +3,14 @@ import Testing
 @testable import EmberScope
 
 struct ScopeExportTests {
+    /// A fractional second, to prove the archive keeps sub-second resolution (final review A11).
+    private let fractional = Fixtures.date.addingTimeInterval(0.125)
+
     private func projection() -> ScopeProjection {
-        // `takenAt` is pinned: its default is `Date()`, and ISO-8601 encoding keeps whole seconds only,
-        // so a live timestamp would not survive the round trip.
+        // `takenAt` is pinned so the fixture is deterministic; it deliberately carries a fractional
+        // second, which the archive's date strategy must round-trip.
         let snapshot = TranscriptSnapshot.make(from: Fixtures.transcript(), sessionID: Fixtures.sessionID,
-                                               contextSize: 4096, takenAt: Fixtures.date)
+                                               contextSize: 4096, takenAt: fractional)
         let request = RequestRecord(sessionID: Fixtures.sessionID, startedAt: Fixtures.date, start: Fixtures.requestStart,
                                     end: Fixtures.requestEnd)
         let call = ToolCallRecord(sessionID: Fixtures.sessionID, startedAt: Fixtures.date,
@@ -24,14 +27,85 @@ struct ScopeExportTests {
                                notes: [NoteRecord(id: UUID(), sessionID: nil, timestamp: Fixtures.date, text: "global")])
     }
 
-    @Test func jsonRoundTrips() throws {
-        let archive = ScopeArchive(projection: projection(), exportedAt: Fixtures.date)
+    @Test func jsonRoundTripsWithSubSecondDates() throws {
+        let archive = ScopeArchive(projection: projection(), exportedAt: fractional)
         let data = try ScopeExport.json(archive)
         let text = String(decoding: data, as: UTF8.self)
-        #expect(text.contains("\"version\" : \"\(EmberScopeVersion.current)\""))
-        #expect(text.contains("2023-11-14T22:13:20Z"))            // ISO-8601 dates
+        #expect(text.contains("2023-11-14T22:13:20.125Z"))        // ISO-8601 with fractional seconds
         let decoded = try ScopeExport.decode(data)
         #expect(decoded == archive)
+        #expect(decoded.exportedAt == fractional)
+        #expect(decoded.sessions[0].latestSnapshot?.takenAt == fractional)
+        // Assert the value, not the pretty-printer's spacing.
+        #expect(decoded.version == EmberScopeVersion.current)
+    }
+
+    /// Ruling (final review A12): pin the archive's wire format for the two status enums, so a future
+    /// refactor cannot silently change what already-shared archives mean.
+    @Test func statusEnumsHaveAStableWireFormat() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let id = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        #expect(String(decoding: try encoder.encode(RequestStatus.succeeded), as: UTF8.self) == #"{"succeeded":{}}"#)
+        #expect(String(decoding: try encoder.encode(RequestStatus.cancelled), as: UTF8.self) == #"{"cancelled":{}}"#)
+        #expect(String(decoding: try encoder.encode(RequestStatus.failed(errorID: id)), as: UTF8.self)
+                == #"{"failed":{"errorID":"44444444-4444-4444-4444-444444444444"}}"#)
+        #expect(String(decoding: try encoder.encode(ToolCallStatus.succeeded), as: UTF8.self) == #"{"succeeded":{}}"#)
+        #expect(String(decoding: try encoder.encode(ToolCallStatus.failed(errorID: id)), as: UTF8.self)
+                == #"{"failed":{"errorID":"44444444-4444-4444-4444-444444444444"}}"#)
+    }
+
+    /// Spec §11: an export made in metadata-only mode must carry no content. Record the fixture through
+    /// a recorder configured with `captureContent: false`, fold it and check BOTH renderings.
+    @Test func redactionIsHonouredByBothExports() throws {
+        let recorder = ScopeRecorder(configuration: ScopeConfiguration(isEnabled: true, captureContent: false),
+                                     isRecording: true)
+        let secrets = ["You are terse.", "Hello there", "Hi!", "echo: hi", #"{"text":"hi"}"#]
+        let snapshot = TranscriptSnapshot.make(from: Fixtures.transcript(), sessionID: Fixtures.sessionID,
+                                               contextSize: 4096, takenAt: fractional)
+        recorder.record(.sessionCreated(Fixtures.sessionInfo), sessionID: Fixtures.sessionID)
+        recorder.record(.transcriptSnapshot(snapshot), sessionID: Fixtures.sessionID)
+        recorder.record(.requestStarted(Fixtures.requestStart), sessionID: Fixtures.sessionID)
+        recorder.record(.requestFinished(Fixtures.requestEnd), sessionID: Fixtures.sessionID)
+        recorder.record(.toolCallStarted(ToolCallStart(callID: Fixtures.callID, toolName: "echo",
+                                                       arguments: #"{"text":"hi"}"#)), sessionID: Fixtures.sessionID)
+        recorder.record(.toolCallFinished(ToolCallEnd(callID: Fixtures.callID, toolName: "echo", status: .succeeded,
+                                                      duration: .milliseconds(4), output: "echo: hi")),
+                        sessionID: Fixtures.sessionID)
+        recorder.record(.error(Fixtures.errorRecord), sessionID: Fixtures.sessionID)
+
+        let archive = ScopeArchive(projection: ScopeStore.fold(recorder.snapshot()), exportedAt: fractional)
+        let markdown = ScopeExport.markdown(archive)
+        let json = String(decoding: try ScopeExport.json(archive), as: UTF8.self)
+        for secret in secrets {
+            #expect(!markdown.contains(secret), "markdown leaked \(secret)")
+            #expect(!json.contains(secret), "json leaked \(secret)")
+        }
+        #expect(markdown.contains(ScopeRedaction.prefix))
+        #expect(json.contains(ScopeRedaction.prefix))
+        // Structure survives: kinds, tool names and counts are developer metadata, not content.
+        #expect(markdown.contains("### chat"))
+        #expect(markdown.contains("`echo`"))
+        #expect(markdown.contains("## Errors (1)"))
+    }
+
+    /// Ruling (final review A8): the Markdown report is an archive, so both error lists read oldest
+    /// first — the Errors TAB stays newest-first.
+    @Test func markdownPrintsErrorsOldestFirst() {
+        let older = ScopeErrorRecord(kind: .rateLimited, requestID: nil, toolCallID: nil, toolName: nil,
+                                     message: "older failure", debugDescription: nil, recoverySuggestion: nil,
+                                     failureReason: nil, underlyingChain: [], isRetryable: true)
+        let newer = ScopeErrorRecord(kind: .refusal, requestID: nil, toolCallID: nil, toolName: nil,
+                                     message: "newer failure", debugDescription: nil, recoverySuggestion: nil,
+                                     failureReason: nil, underlyingChain: [], isRetryable: false)
+        var p = projection()
+        p.errors = [newer, older]                       // as the projection stores them: newest first
+        p.sessions[0].errors = [older, newer]           // as the fold appends them: chronological
+        let md = ScopeExport.markdown(ScopeArchive(projection: p, exportedAt: fractional))
+        #expect(md.range(of: "older failure")!.lowerBound < md.range(of: "newer failure")!.lowerBound)
+        let global = md.range(of: "## Errors")!.upperBound
+        let tail = md[global...]
+        #expect(tail.range(of: "older failure")!.lowerBound < tail.range(of: "newer failure")!.lowerBound)
     }
 
     @Test func markdownContainsTheImportantSections() {

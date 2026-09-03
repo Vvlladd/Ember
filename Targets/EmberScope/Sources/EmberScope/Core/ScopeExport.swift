@@ -20,16 +20,27 @@ public struct ScopeArchive: Sendable, Codable, Equatable {
 }
 
 public enum ScopeExport {
+    /// `JSONEncoder.dateEncodingStrategy = .iso8601` truncates to whole seconds, which collapses the
+    /// ordering of events inside the same second — exactly the resolution a timeline needs. Encode and
+    /// decode with fractional seconds instead. `ISO8601FormatStyle` is a `Sendable` value, so no shared
+    /// formatter state crosses concurrency domains.
+    static let dateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
     public static func json(_ archive: ScopeArchive) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(dateStyle.format(date))
+        }
         return try encoder.encode(archive)
     }
 
     public static func decode(_ data: Data) throws -> ScopeArchive {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            try dateStyle.parse(decoder.singleValueContainer().decode(String.self))
+        }
         return try decoder.decode(ScopeArchive.self, from: data)
     }
 
@@ -132,6 +143,8 @@ public enum ScopeExport {
                 }
             }
             if !session.errors.isEmpty {
+                // Oldest first: an export is an archive, read top to bottom. (The Errors TAB is
+                // newest-first — there you are triaging, not reading a transcript.)
                 out.append("- Errors:")
                 for e in session.errors { out.append("  - \(e.kind.title): \(ScopeFormatting.singleLine(e.message))\(e.debugDescription.map { " (\(ScopeFormatting.singleLine($0)))" } ?? "")") }
             }
@@ -142,7 +155,7 @@ public enum ScopeExport {
         }
         out.append("")
         out.append("## Errors (\(archive.errors.count))")
-        for e in archive.errors {
+        for e in archive.errors.reversed() {   // the projection is newest-first; the archive reads oldest-first
             out.append("- \(e.kind.title) — \(ScopeFormatting.singleLine(e.message))")
             if let d = e.debugDescription { out.append("  - debug: \(ScopeFormatting.singleLine(d))") }
             if let r = e.recoverySuggestion { out.append("  - recovery: \(ScopeFormatting.singleLine(r))") }

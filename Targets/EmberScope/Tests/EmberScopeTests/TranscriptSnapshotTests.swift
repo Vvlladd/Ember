@@ -46,6 +46,19 @@ struct TranscriptSnapshotTests {
         #expect(with.entries[0].tokens > without.entries[0].tokens)
         #expect(with.toolsTokens != nil)
         #expect((with.toolsTokens ?? 0) > (without.toolsTokens ?? 0))
+        // Ruling (final review A13): without the `Tool` values the figure is a LOWER bound (the
+        // transcript's ToolDefinition carries no schema), and the legend must say so.
+        #expect(with.toolSchemasIncluded)
+        #expect(!without.toolSchemasIncluded)
+        #expect(!TranscriptSnapshot.make(from: Transcript(entries: []), sessionID: sessionID, contextSize: 4096).toolSchemasIncluded)
+    }
+
+    /// An empty transcript has nothing to count, so it is never "exact" — and `applying` cannot make
+    /// it exact either, because it only upgrades entries that already exist.
+    @Test func emptyTranscriptIsNeverExact() {
+        let empty = TranscriptSnapshot.make(from: Transcript(entries: []), sessionID: sessionID, contextSize: 4096)
+        #expect(!empty.isExact)
+        #expect(!empty.applying(TokenCounts(snapshotID: empty.id, entryTokens: ["ghost": 5], toolsTokens: 1)).isExact)
     }
 
     @Test func applyingExactCountsMarksEntriesExact() {

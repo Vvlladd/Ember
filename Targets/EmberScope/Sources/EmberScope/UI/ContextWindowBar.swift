@@ -57,7 +57,9 @@ struct ContextWindowBar: View {
                 }
             }
             if let tools = snapshot.toolsTokens {
-                Text("· tool definitions ≈ \(ScopeFormatting.tokens(tools)) (inside instructions)")
+                Text(snapshot.toolSchemasIncluded
+                     ? "· tool definitions ≈ \(ScopeFormatting.tokens(tools)) (inside instructions)"
+                     : "· tool definitions ≥ \(ScopeFormatting.tokens(tools)) (inside instructions; schemas unavailable)")
             }
         }
         .font(.caption).foregroundStyle(.secondary)
