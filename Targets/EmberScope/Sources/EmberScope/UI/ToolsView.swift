@@ -42,6 +42,9 @@ struct ToolRegistryDetail: View {
             if let json = tool.info?.parametersJSON { Section("Parameters schema (JSON)") { CodeText(text: json) } }
             Section("Statistics") {
                 LabeledContent("Calls", value: "\(tool.callCount)")
+                // The mean is over COMPLETED calls, so show that population rather than leaving the
+                // reader to assume it divides by "Calls".
+                LabeledContent("Completed", value: "\(tool.completedCount)")
                 LabeledContent("Failures", value: "\(tool.failureCount)")
                 LabeledContent("Total time", value: ScopeFormatting.duration(tool.totalDuration))
                 if let mean = tool.meanDuration { LabeledContent("Mean time", value: ScopeFormatting.duration(mean)) }
