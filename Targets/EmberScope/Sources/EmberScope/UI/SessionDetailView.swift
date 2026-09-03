@@ -9,9 +9,8 @@ struct SessionDetailView: View {
                 LabeledContent("Model", value: session.info.modelDescription)
                 LabeledContent("Created", value: ScopeFormatting.timestamp(session.createdAt))
                 LabeledContent("Last activity", value: ScopeFormatting.timestamp(session.lastActivity))
-                if session.prewarmCount > 0 {
-                    LabeledContent("Prewarms", value: "\(session.prewarmCount)")
-                }
+                // Always shown: "0" tells you the host is not prewarming, which is worth knowing.
+                LabeledContent("Prewarms", value: "\(session.prewarmCount)")
                 if session.info.restoredFromTranscript {
                     Label("Restored from a saved transcript", systemImage: "clock.arrow.circlepath")
                         .font(.caption).foregroundStyle(.secondary)
