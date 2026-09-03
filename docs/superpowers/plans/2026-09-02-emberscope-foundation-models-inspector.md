@@ -6101,3 +6101,25 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Type consistency** — names checked across tasks: `ScopePayload` cases and payload structs (T2) are the ones consumed by T4/T7/T9/T10/T13; `RequestEnd.resolvedPrompt` (T2) ↔ `RequestObserver.finish(resolvedPrompt:)` (T7) ↔ `RequestRecord.promptText` (T10); `TranscriptSnapshot.make(from:sessionID:contextSize:tools:takenAt:estimator:)` (T3) ↔ T9/T13 call sites; `ScopeRecorder.isActive` (T4) ↔ T6/T8/T9; `ScopeStore.fold(_:maxSessions:) -> ScopeProjection` (T10) ↔ `ScopeArchive(projection:)` (T12) ↔ `ExportMenu` (T14); `EmberScope.recorder` created in T6, extended in T11; `MockTokenCounter` defined in T8's test file and reused by T9's tests.
 
 **Expected test counts** (cumulative, macOS): T0 1 · T1 7 · T2 14 · T3 21 · T4 30 · T5 37 · T6 43 · T7 50 · T8 54 · T9 64 · T10 72 · T11 78 · T12 81 · T13 82; FoundationChatKit 258 → 261 after T15.
+
+## Outcome (recorded 2026-09-03 by the driver)
+
+**Execution:** subagent-driven TDD — a fresh Opus implementer per task, a separate Opus spec+quality reviewer per task, Sonnet scoped re-reviews of fix rounds. Every task passed review; seven tasks needed exactly one fix round each (Tasks 2, 4, 5, 8, 9, 10, 11, 12, 14, 15 — the rulings are recorded in the ledger and, where they changed the design, in the spec).
+
+**Gates on the final code (`e34b7ba`, before the docs commit):**
+
+| Gate | Result |
+|---|---|
+| `EmberScope` tests (macOS) | 88 tests in 17 suites passed |
+| `FoundationChatKit` tests (macOS) | 261 tests in 46 suites passed (258 baseline + 3 integration) |
+| `Ember` macOS Debug build | BUILD SUCCEEDED |
+| `Ember` macOS Release build | BUILD SUCCEEDED (every EmberScope surface compiled out) |
+| `Ember` iOS Simulator (iPhone 17 Pro) build | BUILD SUCCEEDED |
+
+**Simulator run (iPad Pro 11-inch (M5), iOS 26.5 simulator, Debug build):** the app launches; the Ember Scope toolbar button opens the sheet; the model card reports the model available with a 4,096-token context; a real turn ("What is 4892 * 1773? Use the calculator.") was sent. The simulator has no model assets, so generation failed with `GenerationError(-1) › com.apple.SensitiveContentAnalysisML(15) › ModelManagerServices.ModelManagerError(1026)`. Ember's own banner shows the raw error; EmberScope recorded the session, the prewarm, the retrieval note, the stream start with the prompt, the classified error ("Model assets unavailable", full underlying chain, linked request) and the failed request (703 ms), plus a context snapshot (559 / 4,096 estimated; tool definitions ≈ 537 inside the instructions; five tools listed). Screenshots: `docs/screenshots/emberscope-{sessions,session-detail,error-detail,timeline}.png`.
+
+**Not exercised end to end in this session (unit-tested with mocks only):** successful generation, streaming token telemetry (chunk counts, time to first token), live tool-call timing, exact token counts (`tokenCount(for:)` throws without Apple Intelligence), and the hidden `title` / `extract` sessions (they only run after a completed exchange). Apple Intelligence is not enabled on the development Mac.
+
+**Found during verification, fixed in the final review wave:** the Timeline row for a failed request showed a success glyph (`ScopeStyle.icon(for: .requestFinished)` ignored the request status).
+
+**Follow-up candidates (not in scope):** map `ModelManagerServices.ModelManagerError` chains to `ChatError.modelUnavailable` in Ember's own error mapping (Ember shows the raw error today); gate `EmberScope.present()` on `isActive` inside the library; add `SWIFT_TREAT_WARNINGS_AS_ERRORS` to the `EmberScope` target; extract `Targets/EmberScope` into its own Swift package repository (the README carries the manifest).
