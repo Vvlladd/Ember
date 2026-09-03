@@ -312,9 +312,11 @@ Information architecture (single `NavigationStack`, tabs as a segmented picker o
 
 Design notes: native `List`/`Section`/`Gauge`/SF Symbols, monospaced digits for numbers, `.textSelection(.enabled)` everywhere content is shown, redaction placeholder rendered in italics. Views take the store or plain records as inputs so previews work from `ScopeStore.preview`. Follow `swiftui-expert-skill`; keep it restrained.
 
+**Shipped as (deviation, accepted in the final review):** the console is a four-`Tab` `TabView` — Sessions, Timeline, Errors, Tools — each tab a `NavigationStack`, rather than a single `NavigationStack` with a segmented picker / sidebar and a header card. Consequences: the model-status card lives inside the Sessions tab instead of a shared header, and the record / clear / export toolbar is applied to **each tab's root** (`.scopeToolbar(store)`), so it is present on every tab but not on pushed detail screens. Everything else in this section shipped as written.
+
 ### 11. Presentation triggers
 
-- `View.emberScope()` — attaches `.sheet(isPresented:)` bound to `EmberScope.store.isPresented`, and on iOS subscribes to `Notification.Name.emberScopeShake`, posted by a `UIWindow` extension overriding `motionEnded(_:with:)` (the standard SwiftUI shake hook; only compiled when `canImport(UIKit)` and only active after `start()`).
+- `View.emberScope()` — attaches `.sheet(isPresented:)` bound to `EmberScope.store.isPresented`, and on iOS subscribes to `Notification.Name.emberScopeShake`, posted by a `UIWindow` extension overriding `motionEnded(_:with:)` (the standard SwiftUI shake hook; compiled only when `canImport(UIKit)` **and** `DEBUG`). Attach it exactly once per scene. Presentation is gated on `EmberScope.isEnabled` only — never on `isRecording` — so a **paused** inspector still opens; the guard lives inside `present()`.
 - `EmberScopeCommands: Commands` — "Debug ▸ Ember Scope" with `⌘⇧E`, calling `EmberScope.present()`.
 - `EmberScope.present()/dismiss()` for buttons and gestures the host prefers.
 - `EmberScopeView()` public for custom placement (Ember's macOS `Window`).

@@ -24,6 +24,8 @@ its options, timing and output, every tool call with arguments and results, and 
 *Captured on an iPad Pro simulator, which reports the model as available but has no on-device model assets —
 which is why the run above ends in a classified `assetsUnavailable` error instead of a reply.*
 
+*The two totals differ because they count different text at different moments: Ember's gauge adds one budget line per tool from `Toolbox.accountingMetadata`'s digest (`name + description + String(describing:)` of the `GenerationSchema`) alongside the transcript entries and the reply it is about to send, while EmberScope folds the tool definitions into the instructions entry — where the model actually receives them — using the schema encoded as JSON, and counts only what the SDK's transcript holds right now.*
+
 ## Quick start
 
 ```swift
@@ -45,8 +47,9 @@ for try await snapshot in session.streamResponse(to: "Pack list?") { … } // sa
 let wrapped = LanguageModelSession(instructions: "…").inspected(label: "title")
 
 // 3. Show it
-ContentView().emberScope()                            // ONCE per scene. Shake on iOS; EmberScope.present()
-                                                      // from any main-actor context
+ContentView().emberScope()                            // attach ONCE per scene — every copy binds the same
+                                                      // sheet. Shake on iOS; EmberScope.present() from
+                                                      // any main-actor context
 WindowGroup { … }.commands { EmberScopeCommands() }   // Debug ▸ Ember Scope  ⌘⇧E
 ```
 
@@ -62,7 +65,7 @@ sessions, and pass tools there so their calls are timed. Return types are the SD
 | **Timeline** | Every event in order across sessions, filterable (requests / tools / errors / context / notes) and searchable. Any event opens as raw JSON. |
 | **Errors** | Grouped by kind: context window exceeded, model assets unavailable, guardrail violation, unsupported guide, unsupported language or locale, decoding failure, rate limited, concurrent requests, refusal, tool call failed, transient generation failure, cancelled, unknown — each with message, debug description, recovery suggestion, underlying `NSError` chain and a retryable flag. |
 | **Tools** | Every tool the model could call: description, whether the schema is injected into the instructions, the JSON schema, call count, failures, mean duration. |
-| **Export** | Share a Markdown report or a JSON archive, or copy Markdown from the toolbar. |
+| **Export** | Share a Markdown report (`EmberScope-report.md`) or a JSON archive (`EmberScope-archive.json`), or copy Markdown from the toolbar. |
 
 ## API tour
 
@@ -77,7 +80,9 @@ sessions, and pass tools there so their calls are timed. Return types are the SD
   `base` (the SDK session), `snapshotTranscript()`
 - `EmberScope.wrap(_:)` / `tool.inspected()` → `InspectedTool` (forwards `name`, `description`, `parameters`,
   `includesSchemaInInstructions`)
-- `EmberScope.note("compacted 7 → 3 entries", session: id)` — annotate the timeline from your app
+- `EmberScope.note("compacted 7 → 3 entries", session: id)` — annotate the timeline from your app. With a
+  `session:` the note appears on that session's detail screen; without one it appears in the Timeline and the
+  exports only (there is no session to hang it on).
 - `EmberScope.present()` / `dismiss()`, `View.emberScope()`, `EmberScopeCommands`, `EmberScopeView`,
   `Notification.Name.emberScopeShake`
 - `EmberScope.refreshModelStatus(_:)` — re-capture availability after the user enables Apple Intelligence

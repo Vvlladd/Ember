@@ -104,11 +104,13 @@ The gauge labels estimated and exact states honestly and groups usage into instr
 
 ## EmberScope — inspect the model like netfox inspects the network
 
-Ember ships with [EmberScope](Targets/EmberScope/README.md), a drop-in debug inspector for Apple Foundation Models. Shake the device (or press ⌘⇧E on the Mac) to see every session Ember created—the chat session and the hidden title, summary, and extraction sessions—with the exact context window and per-entry token cost, every request's options and timing, every tool call, and every error with Apple's debug description.
+Ember ships with [EmberScope](Targets/EmberScope/README.md), a drop-in debug inspector for Apple Foundation Models. Shake the device (or press ⌘⇧E on the Mac) to see every session Ember created—the chat session and the hidden title, summary, and extraction sessions—with the exact context window the model receives, with per-entry token cost, every request's options and timing, every tool call, and every error with Apple's debug description.
 
 | Context window per session | Ordered event timeline |
 |---|---|
 | ![EmberScope's session detail showing 559 of 4,096 context tokens used with an estimated badge, tool definitions counted inside the instructions entry, and Ember's five registered tools](docs/screenshots/emberscope-session-detail.png) | ![EmberScope's timeline listing a context snapshot, a failed request at 703 ms, a classified model-assets-unavailable error, a stream start, a retrieval note, and a prewarm](docs/screenshots/emberscope-timeline.png) |
+
+*The two totals differ because they count different text at different moments: Ember's gauge adds one budget line per tool from `Toolbox.accountingMetadata`'s digest (`name + description + String(describing:)` of the `GenerationSchema`) alongside the transcript entries and the reply it is about to send, while EmberScope folds the tool definitions into the instructions entry — where the model actually receives them — using the schema encoded as JSON, and counts only what the SDK's transcript holds right now.*
 
 ```swift
 #if DEBUG
@@ -118,7 +120,7 @@ let session = EmberScope.session(tools: tools, instructions: instructions, label
 ContentView().emberScope()
 ```
 
-It is in-memory only, metadata-only in the unified log, and inert outside DEBUG. See the [library README](Targets/EmberScope/README.md) for the API and how to use it in your own app.
+It is in-memory only, metadata-only in the unified log, and inert outside DEBUG. The framework itself is still linked into Release builds — Ember's provider creates every session through it unconditionally — but with recording disabled it is a pass-through: nothing is captured, logged or retained. See the [library README](Targets/EmberScope/README.md) for the API and how to use it in your own app.
 
 > [!NOTE]
 > The screenshots above come from an iPad Pro simulator, which reports the model as available but ships no on-device model assets—so the recorded turn ends in the classified `assetsUnavailable` error rather than a reply. Successful generation, streaming token telemetry, and live tool-call timing are covered by unit tests with mocks; they have not yet been exercised end to end on Apple Intelligence hardware.

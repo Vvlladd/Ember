@@ -6104,7 +6104,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Outcome (recorded 2026-09-03 by the driver)
 
-**Execution:** subagent-driven TDD — a fresh Opus implementer per task, a separate Opus spec+quality reviewer per task, Sonnet scoped re-reviews of fix rounds. Every task passed review; seven tasks needed exactly one fix round each (Tasks 2, 4, 5, 8, 9, 10, 11, 12, 14, 15 — the rulings are recorded in the ledger and, where they changed the design, in the spec).
+**Execution:** subagent-driven TDD — a fresh Opus implementer per task, a separate Opus spec+quality reviewer per task, Sonnet scoped re-reviews of fix rounds. Every task passed review; eleven tasks needed a fix round — Tasks 2, 4, 5, 8, 9, 10, 11, 12, 14 and 15 took exactly one each, and Task 6 took a fix commit (`9099485`) as well (the rulings are recorded in the ledger and, where they changed the design, in the spec).
 
 **Gates on the final code (`e34b7ba`, before the docs commit):**
 
@@ -6113,13 +6113,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 | `EmberScope` tests (macOS) | 88 tests in 17 suites passed |
 | `FoundationChatKit` tests (macOS) | 261 tests in 46 suites passed (258 baseline + 3 integration) |
 | `Ember` macOS Debug build | BUILD SUCCEEDED |
-| `Ember` macOS Release build | BUILD SUCCEEDED (every EmberScope surface compiled out) |
+| `Ember` macOS Release build | BUILD SUCCEEDED (every **app-side** EmberScope surface compiled out; the framework remains linked and inert) |
 | `Ember` iOS Simulator (iPhone 17 Pro) build | BUILD SUCCEEDED |
 
 **Simulator run (iPad Pro 11-inch (M5), iOS 26.5 simulator, Debug build):** the app launches; the Ember Scope toolbar button opens the sheet; the model card reports the model available with a 4,096-token context; a real turn ("What is 4892 * 1773? Use the calculator.") was sent. The simulator has no model assets, so generation failed with `GenerationError(-1) › com.apple.SensitiveContentAnalysisML(15) › ModelManagerServices.ModelManagerError(1026)`. Ember's own banner shows the raw error; EmberScope recorded the session, the prewarm, the retrieval note, the stream start with the prompt, the classified error ("Model assets unavailable", full underlying chain, linked request) and the failed request (703 ms), plus a context snapshot (559 / 4,096 estimated; tool definitions ≈ 537 inside the instructions; five tools listed). Screenshots: `docs/screenshots/emberscope-{sessions,session-detail,error-detail,timeline}.png`.
 
-**Not exercised end to end in this session (unit-tested with mocks only):** successful generation, streaming token telemetry (chunk counts, time to first token), live tool-call timing, exact token counts (`tokenCount(for:)` throws without Apple Intelligence), and the hidden `title` / `extract` sessions (they only run after a completed exchange). Apple Intelligence is not enabled on the development Mac.
+**Not exercised end to end in this session (unit-tested with mocks only):** successful generation, streaming token telemetry (chunk counts, time to first token), live tool-call timing, exact token counts (`tokenCount(for:)` throws without Apple Intelligence), and the hidden `title` / `extract` sessions (they only run after a completed exchange). Apple Intelligence is not enabled on the development Mac. That leaves one **assumption unverified on hardware**: `TranscriptSnapshot.applying(_:)` and `TokenCounting.count(entry:)` assume the SDK's per-entry count for the INSTRUCTIONS entry already includes that entry's `toolDefinitions`, exactly as the estimate does. If it does not, an exact total would under-report by the tool-definition cost. No defensive arithmetic was added — it would relabel a guess as an exact count — and both call sites carry the assumption in a comment.
 
 **Found during verification, fixed in the final review wave:** the Timeline row for a failed request showed a success glyph (`ScopeStyle.icon(for: .requestFinished)` ignored the request status).
+
+**Deferred from the final review wave (ledger):** fold only while the console is presented (both the lazy fold-on-present and the "skip the refresh while `store.isPresented` is false" half — the fold is now off-main and generation-guarded, which removes the UI cost, but it still runs on every flush); `ToolInfo.id == name` gives two same-named tools the same identity; de-duplicating the two error rows a failing tool produces; surfacing the model's use case in `modelDescription`.
 
 **Follow-up candidates (not in scope):** map `ModelManagerServices.ModelManagerError` chains to `ChatError.modelUnavailable` in Ember's own error mapping (Ember shows the raw error today); gate `EmberScope.present()` on `isActive` inside the library; add `SWIFT_TREAT_WARNINGS_AS_ERRORS` to the `EmberScope` target; extract `Targets/EmberScope` into its own Swift package repository (the README carries the manifest).
