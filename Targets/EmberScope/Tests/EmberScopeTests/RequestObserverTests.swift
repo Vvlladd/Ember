@@ -106,6 +106,24 @@ struct RequestObserverTests {
         #expect(end.resolvedPrompt == "the prompt")
     }
 
+    /// Ruling (final review B12): the interval was frozen at session construction, so a later
+    /// `EmberScope.start(configuration:)` never reached sessions that already existed.
+    @Test func progressIntervalFollowsTheRecordersCurrentConfiguration() {
+        let recorder = ScopeRecorder(configuration: ScopeConfiguration(isEnabled: true, streamProgressInterval: .milliseconds(250)),
+                                     isRecording: true)
+        let clock = FakeClock()
+        let o = RequestObserver(recorder: recorder, sessionID: Fixtures.sessionID, now: clock.now)   // no override
+        let h = o.start(kind: .stream, prompt: "p", options: GenerationOptions(), responseFormat: nil,
+                        includeSchemaInPrompt: nil, transcriptCount: 0)
+        o.chunk(h, contentChars: 1)                                     // t=0 → emitted
+        clock.advance(.milliseconds(100)); o.chunk(h, contentChars: 2)  // suppressed at 250 ms
+        recorder.update(configuration: ScopeConfiguration(isEnabled: true, streamProgressInterval: .milliseconds(50)))
+        clock.advance(.milliseconds(60)); o.chunk(h, contentChars: 3)   // 160 ms since the last → now due
+        let progress = payloads(recorder).compactMap { if case .streamProgress(let p) = $0 { return p } else { return nil } }
+        #expect(progress.map(\.chunkCount) == [1, 3])
+    }
+
+    /// Ruling (final review B15): an inactive recorder must not even allocate per-request state.
     @Test func inactiveRecorderProducesNoEventsButStillReturnsEnds() {
         let recorder = ScopeRecorder(configuration: ScopeConfiguration(isEnabled: false), isRecording: true)
         let o = RequestObserver(recorder: recorder, sessionID: Fixtures.sessionID)

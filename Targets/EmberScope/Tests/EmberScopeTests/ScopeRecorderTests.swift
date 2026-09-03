@@ -86,6 +86,30 @@ struct ScopeRecorderTests {
         #expect(r.record(.prewarm)?.sequence == 3)   // sequence keeps growing (ids stay unique across clears)
     }
 
+    /// Ruling (final review B11): a host calling `clear()` directly must get a refreshed store, so
+    /// `clear` flushes exactly like `record` does.
+    @Test func clearInvokesTheFlushHandler() {
+        let r = recorder()
+        let calls = Mutex(0)
+        r.record(.prewarm)
+        r.setFlushHandler { calls.withLock { $0 += 1 } }   // installing re-arms the flush
+        r.clear()
+        #expect(calls.withLock { $0 } == 1)
+        _ = r.snapshot()
+        r.clear()
+        #expect(calls.withLock { $0 } == 2)
+    }
+
+    /// Ruling (final review B13): configuration and recording state must change together, or a
+    /// concurrent `record` can see the new configuration with the old recording flag.
+    @Test func startAppliesConfigurationAndRecordingTogether() {
+        let r = ScopeRecorder(configuration: ScopeConfiguration(isEnabled: false), isRecording: false)
+        #expect(!r.isActive)
+        r.start(configuration: ScopeConfiguration(isEnabled: true, maxEvents: 7, captureContent: false))
+        #expect(r.isRecording && r.isActive)
+        #expect(r.configuration.maxEvents == 7 && !r.configuration.captureContent)
+    }
+
     @Test func updatingConfigurationAppliesImmediately() {
         let r = recorder()
         r.update(configuration: ScopeConfiguration(isEnabled: false))
