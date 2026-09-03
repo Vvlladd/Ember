@@ -68,7 +68,7 @@ public enum ScopeExport {
         out.append("## Sessions (\(archive.sessions.count))")
         for session in archive.sessions {
             out.append("")
-            out.append("### \(session.label) · \(ScopeFormatting.short(session.id)) · created \(ScopeFormatting.timestamp(session.createdAt))")
+            out.append("### \(ScopeFormatting.singleLine(session.label)) · \(ScopeFormatting.short(session.id)) · created \(ScopeFormatting.timestamp(session.createdAt))")
             if let instructions = session.info.instructions {
                 out.append("- Instructions:")
                 out.append(contentsOf: fenced(instructions, indent: "    "))
@@ -79,7 +79,7 @@ public enum ScopeExport {
                 out.append("- Tools: (none)")
             } else {
                 out.append("- Tools:")
-                for tool in session.info.tools { out.append("  - `\(tool.name)` — \(tool.description)") }
+                for tool in session.info.tools { out.append("  - `\(tool.name)` — \(ScopeFormatting.singleLine(tool.description))") }
             }
             if let snap = session.latestSnapshot {
                 out.append("- Context window: \(ScopeFormatting.tokens(snap.usedTokens)) / \(ScopeFormatting.tokens(snap.contextSize)) tokens (\(snap.isExact ? "exact" : "estimated")), \(ScopeFormatting.tokens(snap.remainingTokens)) remaining")
@@ -145,8 +145,8 @@ public enum ScopeExport {
         for e in archive.errors {
             out.append("- \(e.kind.title) — \(ScopeFormatting.singleLine(e.message))")
             if let d = e.debugDescription { out.append("  - debug: \(ScopeFormatting.singleLine(d))") }
-            if let r = e.recoverySuggestion { out.append("  - recovery: \(r)") }
-            if !e.underlyingChain.isEmpty { out.append("  - chain: \(e.underlyingChain.joined(separator: " > "))") }
+            if let r = e.recoverySuggestion { out.append("  - recovery: \(ScopeFormatting.singleLine(r))") }
+            if !e.underlyingChain.isEmpty { out.append("  - chain: \(ScopeFormatting.singleLine(e.underlyingChain.joined(separator: " > ")))") }
             out.append("  - retryable: \(e.isRetryable)")
         }
         if !archive.notes.isEmpty {

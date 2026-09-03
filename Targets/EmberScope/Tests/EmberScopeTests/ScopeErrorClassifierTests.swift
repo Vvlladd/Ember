@@ -26,6 +26,9 @@ struct ScopeErrorClassifierTests {
             #expect(record.requestID == Fixtures.requestID)
             #expect(record.debugDescription != nil)
             #expect(!record.message.isEmpty)
+            // Ruling (final review A2): the chain is root-first, so metadata-only mode (which blanks
+            // `message`) still identifies the failure.
+            #expect(record.underlyingChain.first?.contains("GenerationError") == true, "\(error)")
         }
         let refusal = ScopeErrorClassifier.classify(GenerationError.refusal(.init(transcriptEntries: []), ctx("refused")))
         #expect(refusal.debugDescription == "refused")
@@ -38,6 +41,10 @@ struct ScopeErrorClassifierTests {
         #expect(record.toolName == "echo")
         #expect(record.debugDescription?.contains("boom") == true)
         #expect(!record.isRetryable)
+        // Root first = the tool's OWN error, not the ToolCallError wrapper (whose only extra
+        // information, the tool name, the record already carries).
+        #expect(record.underlyingChain.first?.contains("EchoError") == true)
+        #expect(record.underlyingChain.count == 1)
     }
 
     @Test func mapsCancellation() {
@@ -53,7 +60,8 @@ struct ScopeErrorClassifierTests {
         let record = ScopeErrorClassifier.classify(wrapper)
         #expect(record.kind == .transientGeneration)
         #expect(record.isRetryable)
-        #expect(record.underlyingChain == ["com.apple.tokengeneration(10)"])
+        #expect(record.underlyingChain == ["FoundationModels.LanguageModelSession.GenerationError(-1)",
+                                           "com.apple.tokengeneration(10)"])
 
         let single = NSError(domain: "Outer", code: 1, userInfo: [NSUnderlyingErrorKey: underlying])
         #expect(ScopeErrorClassifier.isTransientGenerationFailure(single))
@@ -67,7 +75,8 @@ struct ScopeErrorClassifierTests {
                               userInfo: [NSMultipleUnderlyingErrorsKey: [mm]])
         let record = ScopeErrorClassifier.classify(wrapper)
         #expect(record.kind == .assetsUnavailable)
-        #expect(record.underlyingChain == ["ModelManagerServices.ModelManagerError(1026)"])
+        #expect(record.underlyingChain == ["FoundationModels.LanguageModelSession.GenerationError(-1)",
+                                           "ModelManagerServices.ModelManagerError(1026)"])
         // Own-domain form, and a look-alike domain must NOT match.
         #expect(ScopeErrorClassifier.classify(mm).kind == .assetsUnavailable)
         #expect(ScopeErrorClassifier.classify(NSError(domain: "ModelManagerServices.ModelManagerErrorX", code: 1)).kind == .unknown)
@@ -79,7 +88,7 @@ struct ScopeErrorClassifierTests {
         #expect(record.toolCallID == Fixtures.callID)
         #expect(record.toolName == "echo")
         #expect(record.message.contains("com.example"))
-        #expect(record.underlyingChain.isEmpty)
+        #expect(record.underlyingChain == ["com.example(42)"])
     }
 
     @Test func kindsHaveTitles() {

@@ -100,7 +100,7 @@ struct ErrorSummary: View {
             if let recovery = error.recoverySuggestion { Label(recovery, systemImage: "lightbulb").font(.caption) }
             if let reason = error.failureReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
             if !error.underlyingChain.isEmpty {
-                Text("Underlying: " + error.underlyingChain.joined(separator: " › ")).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                Text("Error chain: " + error.underlyingChain.joined(separator: " › ")).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
             }
             HStack {
                 if error.isRetryable { Text("retryable").font(.caption2).padding(.horizontal, 6).padding(.vertical, 2).background(.yellow.opacity(0.2), in: Capsule()) }

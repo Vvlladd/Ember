@@ -19,7 +19,9 @@ public struct ScopeErrorRecord: Sendable, Codable, Equatable, Identifiable {
     public var debugDescription: String?
     public var recoverySuggestion: String?
     public var failureReason: String?
-    /// "domain(code)" for each underlying NSError, depth-first.
+    /// The error chain as "domain(code)", the error's own root first, then each underlying NSError
+    /// depth-first. Structured metadata: it survives `captureContent: false`, so a metadata-only
+    /// capture still identifies the failure even though `message` is redacted.
     public var underlyingChain: [String]
     public var isRetryable: Bool
 

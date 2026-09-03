@@ -32,7 +32,9 @@ public extension ScopeErrorRecord.Kind {
 public enum ScopeErrorClassifier {
     public static func classify(_ error: any Error, requestID: UUID? = nil, toolCallID: UUID? = nil,
                                 toolName: String? = nil) -> ScopeErrorRecord {
-        let chain = underlyingChain(of: error)
+        // Root first: the error's own `Domain(code)` otherwise survives only in `message`, which
+        // metadata-only mode redacts — and then the record no longer says WHICH error it was.
+        let chain = fullChain(of: error)
 
         if error is CancellationError {
             return ScopeErrorRecord(kind: .cancelled, requestID: requestID, toolCallID: toolCallID, toolName: toolName,
@@ -41,12 +43,14 @@ public enum ScopeErrorClassifier {
         }
 
         if let toolError = error as? LanguageModelSession.ToolCallError {
+            // The tool's own error is the interesting root here — the ToolCallError wrapper adds nothing
+            // beyond the tool name, which the record already carries.
             return ScopeErrorRecord(kind: .toolCallFailed, requestID: requestID, toolCallID: toolCallID,
                                     toolName: toolError.tool.name,
                                     message: toolError.errorDescription ?? "Tool '\(toolError.tool.name)' failed",
                                     debugDescription: String(describing: toolError.underlyingError),
                                     recoverySuggestion: nil, failureReason: nil,
-                                    underlyingChain: underlyingChain(of: toolError.underlyingError),
+                                    underlyingChain: fullChain(of: toolError.underlyingError),
                                     isRetryable: false)
         }
 
@@ -111,8 +115,15 @@ public enum ScopeErrorClassifier {
         return underlyingChain(of: error).contains { $0.hasPrefix("com.apple.tokengeneration(") }
     }
 
+    /// The error's own "domain(code)" followed by `underlyingChain(of:)` — the shape every record
+    /// stores, so the identity of the failure survives `captureContent: false` (which blanks `message`).
+    public static func fullChain(of error: any Error) -> [String] {
+        [describe(error)] + underlyingChain(of: error)
+    }
+
     /// "domain(code)" for every underlying NSError, depth-first, following both the single and the
-    /// multiple underlying-error keys. Bounded depth so a cyclic chain cannot hang.
+    /// multiple underlying-error keys. Bounded depth so a cyclic chain cannot hang. Does NOT include
+    /// the error itself — `fullChain(of:)` is the root-first version records use.
     public static func underlyingChain(of error: any Error) -> [String] {
         var out: [String] = []
         func walk(_ e: any Error, depth: Int) {
