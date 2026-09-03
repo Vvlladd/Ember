@@ -402,6 +402,52 @@ Disk persistence, history across launches, any network capability, reading unifi
 5. **`ToolDefinition.parameters` is not public** on the transcript — schema JSON comes from the `Tool` instances passed to the factory; wrapped-existing sessions show names/descriptions only.
 6. **Swift 5 language mode** in this repo hides strict-concurrency errors a Swift-6-mode host would see — the library target sets `SWIFT_STRICT_CONCURRENCY = complete` so it stays adoptable by strict hosts.
 
+## Decision log (rulings made during execution, 2026-09-02 → 2026-09-03)
+
+Every ruling below was made by the driver while the plan ran, recorded in the execution ledger with its reasoning and the cost if wrong, and is now part of the shipped behaviour. Where a ruling changed this spec, the section above already reads "as built".
+
+**Privacy and logging**
+1. Metadata-only mode (`captureContent: false`) also redacts the four free-form error strings (`message`, `debugDescription`, `recoverySuggestion`, `failureReason`); error kind, retryability, all ids and the domain/code chain survive. *(Task 2)*
+2. The error chain is stored **root first** in every classifier branch (`GenerationError`, `ToolCallError` → the underlying error first, generic `NSError`), so an error keeps a structured identity after redaction. The UI and export label it "Error chain". *(final review A2)*
+3. Notes are developer annotations: `EmberScope.note(_:)` text is **never redacted in the recorder** (the metadata-only list above never included notes), but `OSLogSink` gates it behind `logContent` like every other free-form string. Hosts must not put user content in a note; the README says so. Two reviewers proposed redacting notes too; the documented exemption was chosen so the timeline keeps its narrative. *(final review A1/B1)*
+4. `OSLogSink` is one live-configurable instance: `EmberScope.start(configuration:)` reconfigures it, error message/debug are `.private` unless `logContent`, `ScopeDiagnostics` logs only `domain(code)`, and the subsystem is the bundle id `dev.iosunpi.emberscope` (renamed from `dev.emberscope` before the first release; the shake `Notification.Name` was renamed with it). *(Tasks 4, 8; final review C12)*
+5. OSLog length metadata (`promptChars`, `argumentChars`, `outputChars`) is stored on the payloads **before** redaction so the numbers stay truthful in metadata-only mode. *(final review B10)*
+
+**Interception fidelity**
+6. `InspectedSession` mirrors the SDK exactly: `@_disfavoredOverload` on the `String` overloads, `nonisolated(nonsending)` on the async entry points, `next(isolation:)` on the stream iterator, `-> sending` on every `streamResponse` and on `collect()`, and all six `streamResponse` overloads including the two schema-based ones. Errors are rethrown unchanged. *(Task 9; final review B5/B6)*
+7. A tool that is already wrapped is **re-bound** to the session it joins (`InspectedToolMarker.rebound(toSessionID:)`) instead of being returned untouched with a `nil` session id. *(final review B8)*
+8. Exact-count resolution runs **one task at a time**: a new snapshot cancels the previous resolver (held in a `Mutex`), and the fold ignores counts whose snapshot is no longer the session's latest. *(final review B2)*
+9. Tool definitions are counted **inside the instructions entry** (that is where the model receives them); `toolsTokens` is informational and shows "≥" when the estimate had no schemas. The assumption that the SDK's exact count for the instructions entry also includes the tool definitions is **unverified on hardware** and carried in comments plus the README; no defensive arithmetic was added because it would relabel an estimate as exact. *(Task 3; final review A6/A13)*
+10. `ToolInfo` encodes schema JSON with `.sortedKeys` because `GenerationSchema` does not encode deterministically. *(Task 6)*
+11. Unmapped `GenerationError` cases fall through to the NSError-chain heuristics; `ModelManagerServices` / `SensitiveContentAnalysisML` chains classify as `assetsUnavailable`, `com.apple.tokengeneration` as `transientGeneration` (retryable). *(Task 5)*
+
+**Store, fold and export**
+12. `ScopeStore.fold` is pure and order-independent: it ignores orphan finishes, duplicate starts **and** duplicate finishes, clamps a negative `maxSessions` to zero, sorts only when the input is not already monotonic (tie-break `sequence` → `timestamp` → `id`), and orders/truncates sessions by **last activity** so the long-lived `chat` session is never evicted by one-shot utility sessions. Tool statistics divide by completed calls and key both start and finish off the start record. *(Task 10; final review A3/A4/A7/D7)*
+13. The fold runs **off the main actor** and `ScopeStore.refresh()` is `async`; a monotonic generation guard makes a slower, older fold unable to overwrite a newer projection. Folding only while the console is presented is **deferred** (see below). *(final review B3)*
+14. Timeline rows carry a precomputed lowercased search key (`TimelineEntry`), so search never rebuilds titles per keystroke. *(final review D6)*
+15. Formatting is locale-pinned (`en_US` for digit grouping — `en_US_POSIX` has none; `date.formatted(.iso8601)` instead of a shared formatter); archive dates keep fractional seconds; Markdown fences are sized to the content and every interpolation is single-lined; exports render lazily inside their `Transferable` representations and carry suggested file names. *(Tasks 12, 14; final review A8/A10/A11/D14)*
+
+**Presentation and shipping**
+16. Presentation (`present()`, shake, ⌘⇧E) gates on `configuration.isEnabled` **only**, never on the recording toggle, so a paused inspector stays openable; the guard lives once inside `present()`. This **reversed** the Task 14 ruling that gated the shake on `isActive`. The `UIWindow.motionEnded` override is compiled only in `DEBUG` and posts only when enabled. *(final review C1 as amended by the UI review)*
+17. `PreviewFixtures` and every `#Preview` are `#if DEBUG` (reversing Task 13's "compile them into Release" ruling). *(final review D24)*
+18. The console ships as a four-`Tab` `TabView` with a per-tab-root toolbar — an accepted deviation from the segmented-picker/sidebar layout first specified in §10. *(final review D25)*
+19. The `EmberScope` framework **stays linked in Release builds of Ember** (the provider creates sessions through it unconditionally) and is inert there; every app-side surface is `#if DEBUG`. The docs say "linked and inert", never "absent". *(final review C2)*
+20. `EmberScope` builds warnings-as-errors under `SWIFT_STRICT_CONCURRENCY = complete` (0 warnings), `EmberScopeTests` under complete concurrency too, and the standalone extraction was smoke-tested for real (`swift build && swift test`, Swift 6 language mode) rather than asserted. No nested `Package.swift` in the repo. *(Task 0 deferred item; final review B7/C6)*
+21. Ember's own token gauge and EmberScope's context bar account differently (per-tool schema-digest budget lines vs. tool cost folded into the instructions entry); the difference is explained under the screenshots, not reconciled. *(final review C7)*
+
+**Deferred (recorded, not done)**
+- Fold only while the console is presented (both halves: lazy fold-on-present and skipping the refresh while `isPresented` is false).
+- `ToolInfo.id == name` gives two same-named tools the same identity.
+- A failing tool produces two error rows (its own failure and the request failure that carries it).
+- `modelDescription` is always "SystemLanguageModel" (the SDK exposes no use-case accessor).
+- The Markdown share uses `.utf8PlainText` with a `.md` file name; an un-localized `NSError` can appear as both `message` and the chain root (labelled "Error chain"); an empty accessibility hint is attached when not over budget.
+- A theoretical lock/record inversion between two genuinely concurrent snapshots could keep the older resolver alive (bounded: the fold ignores stale counts; commented in `snapshotTranscript()`).
+
+**Follow-up candidates**
+- Map `ModelManagerServices.ModelManagerError` chains to `ChatError.modelUnavailable` in Ember's own error mapping (Ember shows the raw error today).
+- Extract `Targets/EmberScope` into its own repository (the README carries the manifest; the extraction is smoke-tested).
+- If the `FoundationChatKit → EmberScope` link-time dependency is unwanted, replace it with an app-injected session-factory seam (the pattern the repo already uses for `ChatModelProvider` and `TextEmbedder`); `inspectionID` would need another route.
+
 ## Flagged decisions for the user
 
 1. **Name:** EmberScope — happy to rename (one module + README).
@@ -409,3 +455,5 @@ Disk persistence, history across launches, any network capability, reading unifi
 3. **Debug-only default** with an explicit override, mirroring netfox.
 4. **Wrapper (not swizzle) interception** — the only sound option with a `final` SDK class; call sites swap `LanguageModelSession(` for `EmberScope.session(`.
 5. **FoundationChatKit depends on EmberScope** (three note call sites + the provider). Alternative: keep notes out and integrate only in the provider.
+
+*Status at PR time (2026-09-03):* all five shipped as proposed and are presented for confirmation in the pull request. The final integration review would push back hardest on #5 — a debug inspector as a link-time dependency of the production framework — and the alternative (an app-injected session-factory seam) is recorded under "Follow-up candidates" in the decision log above.
