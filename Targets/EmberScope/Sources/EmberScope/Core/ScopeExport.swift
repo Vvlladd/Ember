@@ -1,0 +1,173 @@
+import Foundation
+
+/// Everything worth sharing, as one Codable document.
+public struct ScopeArchive: Sendable, Codable, Equatable {
+    public var exportedAt: Date
+    public var version: String
+    public var modelStatus: ModelStatus?
+    public var sessions: [SessionRecord]
+    public var errors: [ScopeErrorRecord]
+    public var notes: [NoteRecord]
+
+    public init(projection: ScopeProjection, exportedAt: Date = Date()) {
+        self.exportedAt = exportedAt
+        self.version = EmberScopeVersion.current
+        self.modelStatus = projection.modelStatus
+        self.sessions = projection.sessions
+        self.errors = projection.errors
+        self.notes = projection.notes
+    }
+}
+
+public enum ScopeExport {
+    /// `JSONEncoder.dateEncodingStrategy = .iso8601` truncates to whole seconds, which collapses the
+    /// ordering of events inside the same second — exactly the resolution a timeline needs. Encode and
+    /// decode with fractional seconds instead. `ISO8601FormatStyle` is a `Sendable` value, so no shared
+    /// formatter state crosses concurrency domains.
+    static let dateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
+    public static func json(_ archive: ScopeArchive) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(dateStyle.format(date))
+        }
+        return try encoder.encode(archive)
+    }
+
+    public static func decode(_ data: Data) throws -> ScopeArchive {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            try dateStyle.parse(decoder.singleValueContainer().decode(String.self))
+        }
+        return try decoder.decode(ScopeArchive.self, from: data)
+    }
+
+    /// Multi-line content goes in an indented fence whose length beats any backtick run inside it, so a
+    /// prompt containing ``` cannot break the list or swallow the rest of the report (Task 12 review ruling).
+    static func fenced(_ text: String, indent: String) -> [String] {
+        var longest = 0, run = 0
+        for character in text {
+            if character == "`" { run += 1; longest = max(longest, run) } else { run = 0 }
+        }
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        var lines = [indent + fence]
+        lines.append(contentsOf: text.split(separator: "\n", omittingEmptySubsequences: false).map { indent + $0 })
+        lines.append(indent + fence)
+        return lines
+    }
+
+    public static func markdown(_ archive: ScopeArchive) -> String {
+        var out: [String] = []
+        out.append("# EmberScope export")
+        out.append("")
+        out.append("- Exported: \(ScopeFormatting.timestamp(archive.exportedAt))")
+        out.append("- EmberScope \(archive.version)")
+        out.append("")
+        out.append("## Model")
+        if let m = archive.modelStatus {
+            out.append("- availability: \(m.availability)")
+            out.append("- contextSize: \(m.contextSize)")
+            out.append("- exact token counts: \(m.supportsExactTokenCounts ? "supported" : "not supported (needs 26.4+)")")
+            out.append("- supported languages: \(m.supportedLanguageCount)")
+            out.append("- OS: \(m.osVersion)")
+        } else {
+            out.append("- (not captured — call EmberScope.start())")
+        }
+        out.append("")
+        out.append("## Sessions (\(archive.sessions.count))")
+        for session in archive.sessions {
+            out.append("")
+            out.append("### \(ScopeFormatting.singleLine(session.label)) · \(ScopeFormatting.short(session.id)) · created \(ScopeFormatting.timestamp(session.createdAt))")
+            if let instructions = session.info.instructions {
+                out.append("- Instructions:")
+                out.append(contentsOf: fenced(instructions, indent: "    "))
+            } else {
+                out.append("- Instructions: (none)")
+            }
+            if session.info.tools.isEmpty {
+                out.append("- Tools: (none)")
+            } else {
+                out.append("- Tools:")
+                for tool in session.info.tools { out.append("  - `\(tool.name)` — \(ScopeFormatting.singleLine(tool.description))") }
+            }
+            if let snap = session.latestSnapshot {
+                out.append("- Context window: \(ScopeFormatting.tokens(snap.usedTokens)) / \(ScopeFormatting.tokens(snap.contextSize)) tokens (\(snap.isExact ? "exact" : "estimated")), \(ScopeFormatting.tokens(snap.remainingTokens)) remaining")
+                out.append("")
+                out.append("| # | kind | tokens | preview |")
+                out.append("|---|---|---|---|")
+                for (i, entry) in snap.entries.enumerated() {
+                    out.append("| \(i + 1) | \(entry.kind.rawValue) | \(entry.tokens)\(entry.isExact ? "" : "~") | \(ScopeFormatting.preview(entry.text, max: 60).replacingOccurrences(of: "|", with: "\\|")) |")
+                }
+                out.append("")
+            }
+            if !session.requests.isEmpty {
+                out.append("- Requests:")
+                for r in session.requests {
+                    let status: String
+                    switch r.end?.status {
+                    case .succeeded?: status = "ok"
+                    case .failed?: status = "FAILED"
+                    case .cancelled?: status = "cancelled"
+                    case nil: status = "in flight"
+                    }
+                    var line = "  - [\(r.start.kind.rawValue)] \(status)"
+                    if let end = r.end {
+                        line += " · \(ScopeFormatting.duration(end.duration))"
+                        if let ttft = end.timeToFirstToken { line += " · first token \(ScopeFormatting.duration(ttft))" }
+                        line += " · \(end.chunkCount) chunks"
+                    }
+                    if let format = r.start.responseFormat { line += " · → \(format)" }
+                    out.append(line)
+                    if let prompt = r.promptText {
+                        out.append("    - prompt:")
+                        out.append(contentsOf: fenced(prompt, indent: "      "))
+                    }
+                    if let output = r.end?.output {
+                        out.append("    - output:")
+                        out.append(contentsOf: fenced(output, indent: "      "))
+                    }
+                    if let error = r.error { out.append("    - error: \(error.kind.title) — \(ScopeFormatting.singleLine(error.message))") }
+                }
+            }
+            if !session.toolCalls.isEmpty {
+                out.append("- Tool calls:")
+                for c in session.toolCalls {
+                    var line = "  - \(c.start.toolName)(\(ScopeFormatting.singleLine(c.start.arguments)))"
+                    if let end = c.end {
+                        line += " → \(ScopeFormatting.singleLine(end.output ?? "(no output)")) · \(ScopeFormatting.duration(end.duration))"
+                        if case .failed = end.status { line += " · FAILED" }
+                    }
+                    out.append(line)
+                }
+            }
+            if !session.errors.isEmpty {
+                // Oldest first: an export is an archive, read top to bottom. (The Errors TAB is
+                // newest-first — there you are triaging, not reading a transcript.)
+                out.append("- Errors:")
+                for e in session.errors { out.append("  - \(e.kind.title): \(ScopeFormatting.singleLine(e.message))\(e.debugDescription.map { " (\(ScopeFormatting.singleLine($0)))" } ?? "")") }
+            }
+            if !session.notes.isEmpty {
+                out.append("- Notes:")
+                for n in session.notes { out.append("  - \(ScopeFormatting.timestamp(n.timestamp)) \(ScopeFormatting.singleLine(n.text))") }
+            }
+        }
+        out.append("")
+        out.append("## Errors (\(archive.errors.count))")
+        for e in archive.errors.reversed() {   // the projection is newest-first; the archive reads oldest-first
+            out.append("- \(e.kind.title) — \(ScopeFormatting.singleLine(e.message))")
+            if let d = e.debugDescription { out.append("  - debug: \(ScopeFormatting.singleLine(d))") }
+            if let r = e.recoverySuggestion { out.append("  - recovery: \(ScopeFormatting.singleLine(r))") }
+            if !e.underlyingChain.isEmpty { out.append("  - chain: \(ScopeFormatting.singleLine(e.underlyingChain.joined(separator: " > ")))") }
+            out.append("  - retryable: \(e.isRetryable)")
+        }
+        if !archive.notes.isEmpty {
+            out.append("")
+            out.append("## Notes")
+            for n in archive.notes { out.append("- \(ScopeFormatting.timestamp(n.timestamp)) \(ScopeFormatting.singleLine(n.text))") }
+        }
+        out.append("")
+        return out.joined(separator: "\n")
+    }
+}

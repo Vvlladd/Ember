@@ -1,13 +1,25 @@
 import SwiftUI
 import SwiftData
 import FoundationChatKit
+import EmberScope
 import os
+
+/// macOS: the inspector lives in its own window (opened by the toolbar button and ⌘⇧E); the sheet
+/// is the iOS presentation. Shared with ChatScene / UnavailableView, so keep it internal.
+let emberScopeWindowID = "emberscope"
 
 @main
 struct EmberApp: App {
     @State private var coordinator: ChatCoordinator
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     init() {
+        #if DEBUG
+        // Developer inspector for every Foundation Models session (chat + title/summary/extract).
+        EmberScope.start()
+        #endif
         let container: ModelContainer
         do {
             container = try ModelContainer(for: Conversation.self, Message.self, MemoryNote.self)
@@ -21,10 +33,31 @@ struct EmberApp: App {
                                                            store: store, memory: memory))
     }
 
+    // Every EmberScope surface is DEBUG-only (Task 15 review ruling): a Release build of Ember has no
+    // sheet, no "Debug ▸ Ember Scope" menu / ⌘⇧E, and no inspector window — the library is inert there.
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            RootView(coordinator: coordinator).emberScope()
+            #else
             RootView(coordinator: coordinator)
+            #endif
         }
+        #if DEBUG
+        .commands {
+            #if os(macOS)
+            EmberScopeCommands { openWindow(id: emberScopeWindowID) }
+            #else
+            EmberScopeCommands()
+            #endif
+        }
+        #endif
+        #if DEBUG && os(macOS)
+        Window("Ember Scope", id: emberScopeWindowID) {
+            EmberScopeView()
+        }
+        .defaultSize(width: 960, height: 680)
+        #endif
     }
 
     /// EmbeddingGemma when its bundled resources exist (they are gitignored dev assets, so
