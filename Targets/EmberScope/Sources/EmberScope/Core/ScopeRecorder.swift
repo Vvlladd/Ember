@@ -36,9 +36,15 @@ public final class ScopeRecorder: Sendable {
 
     public func update(configuration: ScopeConfiguration) { state.withLock { $0.configuration = configuration } }
     public func setRecording(_ on: Bool) { state.withLock { $0.isRecording = on } }
+    /// Configuration and recording state in ONE lock acquisition, so a concurrent `record` can never
+    /// observe the new configuration with the old recording flag (or the reverse).
+    public func start(configuration: ScopeConfiguration) {
+        state.withLock { $0.configuration = configuration; $0.isRecording = true }
+    }
     public func addSink(_ sink: any ScopeSink) { state.withLock { $0.sinks.append(sink) } }
-    /// Called (at most once per batch) after new events arrive; the handler must eventually call `snapshot()`.
-    public func setFlushHandler(_ handler: (@Sendable () -> Void)?) {
+    /// Called (at most once per batch) after new events arrive; the handler must eventually call
+    /// `snapshot()`. Internal: `ScopeStore` installs it, and a second handler would silently replace it.
+    func setFlushHandler(_ handler: (@Sendable () -> Void)?) {
         state.withLock { $0.flushHandler = handler; $0.flushScheduled = false }
     }
 
@@ -79,10 +85,16 @@ public final class ScopeRecorder: Sendable {
         }
     }
 
+    /// Drop every event. Flushes like `record` does, so a host calling this directly still gets a
+    /// refreshed store.
     public func clear() {
-        state.withLock { s in
+        let flush = state.withLock { s -> (@Sendable () -> Void)? in
             s.events.removeAll()
             s.evictedCount = 0
+            guard !s.flushScheduled, let handler = s.flushHandler else { return nil }
+            s.flushScheduled = true
+            return handler
         }
+        flush?()
     }
 }

@@ -79,8 +79,6 @@ extension ScopeStore {
                                                     chunkCount: 0, output: nil, outputChars: 0, appendedEntryCount: 0, resolvedPrompt: nil)), sessionID: title)
         recorder.record(.note("retrying after transient error"), sessionID: title)
 
-        let store = ScopeStore(recorder: recorder)
-        store.refresh()
-        return store
+        return ScopeStore(recorder: recorder)   // `init` folds synchronously
     }
 }

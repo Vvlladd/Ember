@@ -80,16 +80,50 @@ struct ScopeStoreFoldTests {
         #expect(p.tools.map(\.name) == ["echo"])
         let echo = p.tools[0]
         #expect(echo.info?.description == "Echo the text back.")
-        #expect(echo.callCount == 2 && echo.failureCount == 1)
+        #expect(echo.callCount == 2 && echo.completedCount == 2 && echo.failureCount == 1)
         #expect(echo.totalDuration == .milliseconds(40))
         #expect(echo.meanDuration == .milliseconds(20))
+    }
+
+    /// Ruling (final review A3): the mean divided the FINISHED total by the STARTED count, so a call
+    /// still in flight silently halved it.
+    @Test func meanDurationDividesByCompletedCallsOnly() {
+        let first = UUID(), second = UUID()
+        let events = [
+            Fixtures.event(.toolCallStarted(ToolCallStart(callID: first, toolName: "echo", arguments: "{}")), sequence: 1),
+            Fixtures.event(.toolCallStarted(ToolCallStart(callID: second, toolName: "echo", arguments: "{}")), sequence: 2),
+            Fixtures.event(.toolCallFinished(ToolCallEnd(callID: first, toolName: "echo", status: .succeeded,
+                                                         duration: .milliseconds(30), output: "ok")), sequence: 3),
+        ]
+        let echo = ScopeStore.fold(events).tools[0]
+        #expect(echo.callCount == 2)
+        #expect(echo.completedCount == 1)
+        #expect(echo.meanDuration == .milliseconds(30))
+        #expect(ToolRegistryEntry(name: "idle").meanDuration == nil)
+    }
+
+    /// Both halves of the bookkeeping key off the START record's name, so a finish that reports a
+    /// different name cannot split one call across two registry rows.
+    @Test func finishIsAttributedToTheStartRecordsToolName() {
+        let id = UUID()
+        let events = [
+            Fixtures.event(.toolCallStarted(ToolCallStart(callID: id, toolName: "echo", arguments: "{}")), sequence: 1),
+            Fixtures.event(.toolCallFinished(ToolCallEnd(callID: id, toolName: "renamed", status: .succeeded,
+                                                         duration: .milliseconds(5), output: "ok")), sequence: 2),
+        ]
+        let tools = ScopeStore.fold(events).tools
+        #expect(tools.map(\.name) == ["echo"])
+        #expect(tools[0].completedCount == 1 && tools[0].totalDuration == .milliseconds(5))
     }
 
     @Test func errorsNewestFirstTimelineAscendingNotesSplit() {
         let p = ScopeStore.fold(stream())
         #expect(p.errors.count == 2)
         #expect(p.errors[0] == Fixtures.errorRecord)
-        #expect(p.timeline.map(\.sequence) == Array(1...UInt64(stream().count)))
+        #expect(p.timeline.map(\.event.sequence) == Array(1...UInt64(stream().count)))
+        // Rendered once in the fold so search never rebuilds them (final review D6).
+        #expect(p.timeline.contains { $0.searchKey.contains("retrieved 2 memories") })
+        #expect(p.timeline.allSatisfy { $0.searchKey == $0.searchKey.lowercased() })
         #expect(p.notes.map(\.text) == ["global note"])
         #expect(p.modelStatus?.contextSize == 4096)
     }
@@ -122,22 +156,61 @@ struct ScopeStoreFoldTests {
         #expect(ScopeStore.fold([], maxSessions: -1).sessions.isEmpty)
     }
 
+    /// Ruling (final review A7): concatenating two snapshots of the same log must not double any
+    /// count — the finish guards ignore a second terminal event, and identical events de-duplicate.
+    @Test func foldingTheSameEventsTwiceChangesNothing() {
+        let events = stream()
+        #expect(ScopeStore.fold(events + events) == ScopeStore.fold(events))
+        // A *different* event carrying an already-finished id must not re-time the call either.
+        let id = UUID()
+        let base = [
+            Fixtures.event(.toolCallStarted(ToolCallStart(callID: id, toolName: "echo", arguments: "{}")), sequence: 1),
+            Fixtures.event(.toolCallFinished(ToolCallEnd(callID: id, toolName: "echo", status: .succeeded,
+                                                         duration: .milliseconds(5), output: "ok")), sequence: 2),
+        ]
+        let late = Fixtures.event(.toolCallFinished(ToolCallEnd(callID: id, toolName: "echo", status: .failed(errorID: UUID()),
+                                                                duration: .seconds(9), output: nil)), sequence: 3)
+        let tools = ScopeStore.fold(base + [late]).tools
+        #expect(tools[0].completedCount == 1 && tools[0].failureCount == 0)
+        #expect(tools[0].totalDuration == .milliseconds(5))
+    }
+
     @Test func foldIsOrderIndependent() {
         let events = stream()                       // ONE array — the fixture mints fresh UUIDs on every call
         #expect(ScopeStore.fold(events.shuffled()) == ScopeStore.fold(events))
+        // The hot path (already strictly ascending) skips the sort but must agree with it.
+        #expect(ScopeStore.orderedForFolding(events).map(\.id) == events.map(\.id))
+        #expect(ScopeStore.orderedForFolding(events.shuffled()).map(\.id) == events.map(\.id))
+    }
+
+    /// Ruling (final review D7): fifty one-shot `title` sessions must not evict the long-lived `chat`
+    /// session that is still streaming — order and truncate by last activity, not creation order.
+    @Test func sessionsAreOrderedAndTruncatedByLastActivity() {
+        let old = UUID(), recent = UUID()
+        let events = [
+            Fixtures.event(.sessionCreated(Fixtures.sessionInfo), sequence: 1, sessionID: old, at: Fixtures.date),
+            Fixtures.event(.sessionCreated(SessionInfo(label: "title", instructions: nil, tools: [], contextSize: 4096,
+                                                       modelDescription: "m", restoredFromTranscript: false)),
+                           sequence: 2, sessionID: recent, at: Fixtures.date.addingTimeInterval(10)),
+            Fixtures.event(.prewarm, sequence: 3, sessionID: old, at: Fixtures.date.addingTimeInterval(60)),
+        ]
+        let p = ScopeStore.fold(events)
+        #expect(p.sessions.map(\.label) == ["chat", "title"])          // older, but active most recently
+        #expect(ScopeStore.fold(events, maxSessions: 1).sessions.map(\.label) == ["chat"])
     }
 }
 
 @MainActor
 struct ScopeStoreTests {
-    @Test func refreshProjectsRecorderAndTracksState() {
+    @Test func refreshProjectsRecorderAndTracksState() async {
         let r = ScopeRecorder(configuration: ScopeConfiguration(isEnabled: true, maxEvents: 2), isRecording: true)
         let store = ScopeStore(recorder: r)
         #expect(store.sessions.isEmpty && store.isRecording)
+        #expect(store.isEnabled && store.maxEvents == 2)   // configuration mirrors, so no body takes the lock
         r.record(.sessionCreated(Fixtures.sessionInfo), sessionID: Fixtures.sessionID)
         r.record(.prewarm, sessionID: Fixtures.sessionID)
         r.record(.prewarm, sessionID: Fixtures.sessionID)
-        store.refresh()
+        await store.refresh()
         #expect(store.sessions.count == 1)
         #expect(store.evictedEventCount == 1)
         #expect(store.session(id: Fixtures.sessionID)?.prewarmCount == 2)
@@ -145,6 +218,19 @@ struct ScopeStoreTests {
         #expect(!store.isRecording && !r.isRecording)
         store.clear()
         #expect(store.sessions.isEmpty && store.timeline.isEmpty)
+    }
+
+    /// Ruling (final review B3): the fold runs off the main actor, so two overlapping refreshes can
+    /// land out of order — a stale one must never overwrite a newer projection.
+    @Test func aStaleRefreshNeverOverwritesANewerProjection() async {
+        let r = ScopeRecorder(configuration: ScopeConfiguration(isEnabled: true), isRecording: true)
+        let store = ScopeStore(recorder: r)
+        r.record(.note("first"))
+        async let a: Void = store.refresh()
+        r.record(.note("second"))
+        async let b: Void = store.refresh()
+        _ = await (a, b)
+        #expect(store.notes.map(\.text) == ["first", "second"])
     }
 
     @Test func flushHandlerRefreshesAsynchronously() async {

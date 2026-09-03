@@ -19,7 +19,7 @@ struct SessionListView: View {
                 Text("Sessions (\(store.sessions.count))")
             } footer: {
                 if store.evictedEventCount > 0 {
-                    Text("\(store.evictedEventCount) older events were evicted (maxEvents = \(store.recorder.configuration.maxEvents)).")
+                    Text("\(store.evictedEventCount) older events were evicted (maxEvents = \(store.maxEvents)).")
                 }
                 if !store.isRecording { Text("Recording is paused.") }
             }

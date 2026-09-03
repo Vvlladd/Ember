@@ -35,8 +35,7 @@ public enum EmberScope {
     /// enablement and content privacy), re-captures the model status and refreshes the store.
     public static func start(configuration: ScopeConfiguration = ScopeConfiguration(),
                              model: SystemLanguageModel = .default) {
-        recorder.update(configuration: configuration)
-        recorder.setRecording(true)
+        recorder.start(configuration: configuration)
         osLogSink.update(isEnabled: configuration.logToOSLog, logContent: configuration.logContent)
         let installNow = osLogSinkInstalls.withLock { count -> Bool in
             guard count == 0 else { return false }
@@ -45,19 +44,19 @@ public enum EmberScope {
         }
         if installNow { recorder.addSink(osLogSink) }
         refreshModelStatus(model)
-        Task { @MainActor in store.refresh() }
+        Task { @MainActor in await store.refresh() }
     }
 
     /// Pause recording (keeps what was captured).
     public static func stop() {
         recorder.setRecording(false)
-        Task { @MainActor in store.refresh() }
+        Task { @MainActor in await store.refresh() }
     }
 
     /// Drop every captured event and session.
     public static func clear() {
         recorder.clear()
-        Task { @MainActor in store.refresh() }
+        Task { @MainActor in await store.refresh() }
     }
 
     // MARK: Sessions

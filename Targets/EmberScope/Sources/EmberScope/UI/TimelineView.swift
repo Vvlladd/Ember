@@ -21,26 +21,33 @@ struct TimelineView: View {
         }
     }
 
-    private var events: [ScopeEvent] {
+    /// Titles and subtitles are precomputed in the fold (`TimelineEntry.searchKey`), so neither the
+    /// no-query path nor a keystroke rebuilds thousands of strings in `body`.
+    private var entries: [TimelineEntry] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return store.timeline.reversed().filter { event in
-            guard filter.matches(event.payload) else { return false }
-            guard !q.isEmpty else { return true }
-            let haystack = (ScopeStyle.title(for: event.payload) + " " + (ScopeStyle.subtitle(for: event.payload) ?? "")).lowercased()
-            return haystack.contains(q)
+        return store.timeline.reversed().filter { entry in
+            guard filter.matches(entry.event.payload) else { return false }
+            return q.isEmpty || entry.searchKey.contains(q)
         }
     }
+
+    private var isFiltering: Bool { filter != .all || !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
         List {
             Picker("Filter", selection: $filter) { ForEach(Filter.allCases) { Text($0.rawValue).tag($0) } }
                 .pickerStyle(.segmented).labelsHidden()
-            if events.isEmpty {
-                ContentUnavailableView("No events", systemImage: "list.bullet.rectangle",
-                                       description: Text("Events appear here in order as sessions run."))
+            if entries.isEmpty {
+                if isFiltering {
+                    ContentUnavailableView("No matching events", systemImage: "line.3.horizontal.decrease.circle",
+                                           description: Text("\(store.timeline.count) events were captured; none match this filter and search."))
+                } else {
+                    ContentUnavailableView("No events", systemImage: "list.bullet.rectangle",
+                                           description: Text("Events appear here in order as sessions run."))
+                }
             }
-            ForEach(events) { event in
-                NavigationLink { EventDetailView(event: event) } label: { TimelineRow(event: event) }
+            ForEach(entries) { entry in
+                NavigationLink { EventDetailView(event: entry.event) } label: { TimelineRow(entry: entry) }
             }
         }
         .searchable(text: $query, prompt: "Search titles and previews")
@@ -49,22 +56,25 @@ struct TimelineView: View {
 }
 
 struct TimelineRow: View {
-    let event: ScopeEvent
+    let entry: TimelineEntry
+    @ScaledMetric(relativeTo: .callout) private var glyphWidth: CGFloat = 20
     var body: some View {
-        let icon = ScopeStyle.icon(for: event.payload)
+        let icon = ScopeStyle.icon(for: entry.event.payload)
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon.name).foregroundStyle(icon.color).frame(width: 20)
+            Image(systemName: icon.name).foregroundStyle(icon.color).frame(width: glyphWidth)
                 .accessibilityHidden(true)   // the title carries the meaning
             VStack(alignment: .leading, spacing: 2) {
-                Text(ScopeStyle.title(for: event.payload)).font(.callout)
-                if let subtitle = ScopeStyle.subtitle(for: event.payload) {
+                Text(entry.title).font(.callout)
+                if let subtitle = entry.subtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(event.timestamp, style: .time).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                if let sid = event.sessionID { Text(ScopeFormatting.short(sid)).font(.caption2.monospaced()).foregroundStyle(.tertiary) }
+                Text(entry.event.timestamp, style: .time).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                if let sid = entry.event.sessionID {
+                    Text(ScopeFormatting.short(sid)).font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                }
             }
         }
         .padding(.vertical, 2)

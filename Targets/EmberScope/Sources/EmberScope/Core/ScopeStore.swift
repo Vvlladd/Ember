@@ -45,12 +45,19 @@ public struct ToolRegistryEntry: Sendable, Codable, Equatable, Identifiable {
     public var id: String { name }
     public var name: String
     public var info: ToolInfo?
+    /// Calls that STARTED (and whose start survived the ring buffer).
     public var callCount: Int
+    /// Calls that also finished — the population `totalDuration` describes.
+    public var completedCount: Int
     public var failureCount: Int
     public var totalDuration: Duration
-    public var meanDuration: Duration? { callCount == 0 ? nil : totalDuration / callCount }
-    public init(name: String, info: ToolInfo? = nil, callCount: Int = 0, failureCount: Int = 0, totalDuration: Duration = .zero) {
-        self.name = name; self.info = info; self.callCount = callCount; self.failureCount = failureCount; self.totalDuration = totalDuration
+    /// Mean over COMPLETED calls: dividing the finished total by the started count under-reports the
+    /// mean whenever a call is still in flight.
+    public var meanDuration: Duration? { completedCount == 0 ? nil : totalDuration / completedCount }
+    public init(name: String, info: ToolInfo? = nil, callCount: Int = 0, completedCount: Int = 0,
+                failureCount: Int = 0, totalDuration: Duration = .zero) {
+        self.name = name; self.info = info; self.callCount = callCount; self.completedCount = completedCount
+        self.failureCount = failureCount; self.totalDuration = totalDuration
     }
 }
 
@@ -81,16 +88,36 @@ public struct SessionRecord: Sendable, Codable, Equatable, Identifiable {
     }
 }
 
+/// One timeline row: the event plus its rendered one-liners, built ONCE in the fold. The search field
+/// filters thousands of these per keystroke, so `searchKey` (lowercased title + subtitle) must not be
+/// rebuilt in a view `body`.
+public struct TimelineEntry: Sendable, Codable, Equatable, Identifiable {
+    public var event: ScopeEvent
+    public var title: String
+    public var subtitle: String?
+    public var searchKey: String
+    public var id: UUID { event.id }
+
+    public init(event: ScopeEvent) {
+        self.event = event
+        let title = ScopeEventSummary.title(for: event.payload)
+        let subtitle = ScopeEventSummary.subtitle(for: event.payload)
+        self.title = title
+        self.subtitle = subtitle
+        self.searchKey = (subtitle.map { title + " " + $0 } ?? title).lowercased()
+    }
+}
+
 /// Everything the UI renders, derived purely from the event log.
 public struct ScopeProjection: Sendable, Codable, Equatable {
-    public var sessions: [SessionRecord]      // newest first
-    public var timeline: [ScopeEvent]         // ascending by sequence
+    public var sessions: [SessionRecord]      // most recently active first
+    public var timeline: [TimelineEntry]      // ascending by sequence
     public var errors: [ScopeErrorRecord]     // newest first
     public var tools: [ToolRegistryEntry]     // by name
     public var modelStatus: ModelStatus?
     public var notes: [NoteRecord]            // notes without a session
     public static let empty = ScopeProjection(sessions: [], timeline: [], errors: [], tools: [], modelStatus: nil, notes: [])
-    public init(sessions: [SessionRecord], timeline: [ScopeEvent], errors: [ScopeErrorRecord], tools: [ToolRegistryEntry],
+    public init(sessions: [SessionRecord], timeline: [TimelineEntry], errors: [ScopeErrorRecord], tools: [ToolRegistryEntry],
                 modelStatus: ModelStatus?, notes: [NoteRecord]) {
         self.sessions = sessions; self.timeline = timeline; self.errors = errors; self.tools = tools
         self.modelStatus = modelStatus; self.notes = notes
@@ -105,12 +132,19 @@ public final class ScopeStore {
     public private(set) var projection: ScopeProjection = .empty
     public private(set) var isRecording: Bool
     public private(set) var evictedEventCount: Int = 0
+    /// Mirrors of the recorder's configuration, so a view `body` never takes the recorder's lock.
+    public private(set) var isEnabled: Bool
+    public private(set) var maxEvents: Int
     /// Drives the `.emberScope()` sheet.
     public var isPresented: Bool = false
     public let recorder: ScopeRecorder
 
+    /// Monotonic guard: a slower older fold must never overwrite a newer projection.
+    @ObservationIgnored private var requestedGeneration: UInt64 = 0
+    @ObservationIgnored private var appliedGeneration: UInt64 = 0
+
     public var sessions: [SessionRecord] { projection.sessions }
-    public var timeline: [ScopeEvent] { projection.timeline }
+    public var timeline: [TimelineEntry] { projection.timeline }
     public var errors: [ScopeErrorRecord] { projection.errors }
     public var tools: [ToolRegistryEntry] { projection.tools }
     public var modelStatus: ModelStatus? { projection.modelStatus }
@@ -118,17 +152,47 @@ public final class ScopeStore {
 
     public init(recorder: ScopeRecorder) {
         self.recorder = recorder
+        let configuration = recorder.configuration
         self.isRecording = recorder.isRecording
+        self.isEnabled = configuration.isEnabled
+        self.maxEvents = configuration.maxEvents
         recorder.setFlushHandler { [weak self] in
-            Task { @MainActor [weak self] in self?.refresh() }
+            Task { @MainActor [weak self] in await self?.refresh() }
         }
-        refresh()
+        // The log is empty (or tiny) at construction, and callers expect a usable store synchronously.
+        applyNow()
     }
 
-    public func refresh() {
-        let events = recorder.snapshot()
-        projection = Self.fold(events, maxSessions: recorder.configuration.maxSessions)
+    /// Re-fold the recorder's log. The fold runs OFF the main actor — it is `nonisolated` and pure —
+    /// and only the finished projection is assigned here, so a 2,000-event flush does not block the UI.
+    /// Awaiting it returns after the projection has been assigned (or skipped as stale).
+    public func refresh() async {
+        requestedGeneration += 1
+        let generation = requestedGeneration
+        let recorder = self.recorder
+        let maxSessions = recorder.configuration.maxSessions
+        let folded = await Task.detached(priority: .utility) {
+            ScopeStore.fold(recorder.snapshot(), maxSessions: maxSessions)
+        }.value
+        guard generation > appliedGeneration else { return }
+        appliedGeneration = generation
+        apply(folded)
+    }
+
+    /// Synchronous fold, for the two paths that must be immediate and are cheap: construction and
+    /// `clear()` (which has just emptied the log).
+    private func applyNow() {
+        requestedGeneration += 1
+        appliedGeneration = requestedGeneration
+        apply(Self.fold(recorder.snapshot(), maxSessions: recorder.configuration.maxSessions))
+    }
+
+    private func apply(_ folded: ScopeProjection) {
+        projection = folded
+        let configuration = recorder.configuration
         isRecording = recorder.isRecording
+        isEnabled = configuration.isEnabled
+        maxEvents = configuration.maxEvents
         evictedEventCount = recorder.evictedEventCount
     }
 
@@ -139,7 +203,7 @@ public final class ScopeStore {
 
     public func clear() {
         recorder.clear()
-        refresh()
+        applyNow()
     }
 
     public func session(id: UUID) -> SessionRecord? { projection.sessions.first { $0.id == id } }
@@ -149,7 +213,7 @@ public final class ScopeStore {
     /// Pure: the same events (in any order) always fold to the same projection, so it runs off the main
     /// actor and is unit-tested without a store.
     public nonisolated static func fold(_ events: [ScopeEvent], maxSessions: Int = 50) -> ScopeProjection {
-        let ordered = events.sorted { $0.sequence < $1.sequence }
+        let ordered = orderedForFolding(events)
         var sessions: [UUID: SessionRecord] = [:]
         var sessionOrder: [UUID] = []
         var requests: [UUID: RequestRecord] = [:]
@@ -189,6 +253,7 @@ public final class ScopeStore {
             case .streamProgress(let progress):
                 requests[progress.requestID]?.progress = progress
             case .requestFinished(let end):
+                guard requests[end.requestID]?.end == nil else { continue }   // a duplicate finish never re-times
                 requests[end.requestID]?.end = end
             case .toolCallStarted(let start):
                 if toolCalls[start.callID] == nil {
@@ -198,12 +263,17 @@ public final class ScopeStore {
                 toolCalls[start.callID] = ToolCallRecord(sessionID: event.sessionID, startedAt: event.timestamp, start: start)
             case .toolCallFinished(let end):
                 // Aggregate only calls whose start survived the ring buffer, so callCount and totalDuration
-                // describe the same population (an orphan finish would skew meanDuration / failureCount).
-                guard toolCalls[end.callID] != nil else { continue }
+                // describe the same population (an orphan finish would skew meanDuration / failureCount),
+                // and never twice for the same call.
+                guard let call = toolCalls[end.callID], call.end == nil else { continue }
+                // Both halves are keyed off the START record's name, so a finish reporting a different
+                // name cannot split one call across two registry rows.
+                let name = call.start.toolName
                 toolCalls[end.callID]?.end = end
-                registry[end.toolName, default: ToolRegistryEntry(name: end.toolName)].totalDuration += end.duration
+                registry[name, default: ToolRegistryEntry(name: name)].completedCount += 1
+                registry[name, default: ToolRegistryEntry(name: name)].totalDuration += end.duration
                 if case .failed = end.status {
-                    registry[end.toolName, default: ToolRegistryEntry(name: end.toolName)].failureCount += 1
+                    registry[name, default: ToolRegistryEntry(name: name)].failureCount += 1
                 }
             case .error(let record):
                 errors.append(record)
@@ -232,15 +302,42 @@ public final class ScopeStore {
             if let call = toolCalls[id], let sid = call.sessionID { sessions[sid]?.toolCalls.append(call) }
         }
 
-        var newestFirst = sessionOrder.reversed().compactMap { sessions[$0] }
+        // Most recently ACTIVE first, and truncated the same way: ordering by creation would let a
+        // burst of one-shot `title` / `extract` sessions evict the long-lived `chat` session that is
+        // still streaming. Ties fall back to creation time, then id, so the fold stays deterministic.
+        var byActivity = sessionOrder.compactMap { sessions[$0] }.sorted { a, b in
+            if a.lastActivity != b.lastActivity { return a.lastActivity > b.lastActivity }
+            if a.createdAt != b.createdAt { return a.createdAt > b.createdAt }
+            return a.id.uuidString < b.id.uuidString
+        }
         let cap = max(0, maxSessions)   // a negative host value must not trap
-        if newestFirst.count > cap { newestFirst = Array(newestFirst.prefix(cap)) }
+        if byActivity.count > cap { byActivity = Array(byActivity.prefix(cap)) }
 
-        return ScopeProjection(sessions: newestFirst,
-                               timeline: ordered,
+        return ScopeProjection(sessions: byActivity,
+                               timeline: ordered.map(TimelineEntry.init),
                                errors: errors.reversed(),
                                tools: registry.values.sorted { $0.name < $1.name },
                                modelStatus: modelStatus,
                                notes: globalNotes)
+    }
+
+    /// `fold` is public and may be handed a decoded, concatenated or shuffled stream, so the contract
+    /// is "any order in, sequence order out". The hot path — a live `ScopeRecorder.snapshot()` — is
+    /// already strictly ascending, so it skips both the sort and the de-duplication after one linear
+    /// scan. Anything else is de-duplicated by event id (`fold(events + events) == fold(events)`) and
+    /// sorted with tie-breaks all the way down to the id, so two folds of the same events agree.
+    nonisolated static func orderedForFolding(_ events: [ScopeEvent]) -> [ScopeEvent] {
+        var isStrictlyAscending = true
+        for i in events.indices.dropFirst() where events[i].sequence <= events[i - 1].sequence {
+            isStrictlyAscending = false
+            break
+        }
+        guard !isStrictlyAscending else { return events }
+        var seen = Set<UUID>()
+        return events.filter { seen.insert($0.id).inserted }.sorted { a, b in
+            if a.sequence != b.sequence { return a.sequence < b.sequence }
+            if a.timestamp != b.timestamp { return a.timestamp < b.timestamp }
+            return a.id.uuidString < b.id.uuidString
+        }
     }
 }

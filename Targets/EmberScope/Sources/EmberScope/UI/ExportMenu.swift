@@ -43,8 +43,9 @@ struct ScopeToolbar: ViewModifier {
     @Environment(\.dismiss) private var dismiss
 
     /// `isRecording` mirrors the recorder's flag, but a host that disabled EmberScope records nothing
-    /// whatever the flag says — so the toggle is inert and says why.
-    private var isEnabled: Bool { store.recorder.configuration.isEnabled }
+    /// whatever the flag says — so the toggle is inert and says why. Read from the store's mirror:
+    /// a `body` must not take the recorder's lock.
+    private var isEnabled: Bool { store.isEnabled }
 
     func body(content: Content) -> some View {
         content.toolbar {
