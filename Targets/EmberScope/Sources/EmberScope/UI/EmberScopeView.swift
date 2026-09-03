@@ -30,10 +30,18 @@ public struct EmberScopeView: View {
     }
 }
 
+#if DEBUG
 #Preview("Sessions") { EmberScopeView(store: .preview) }
 #Preview("Session detail") {
-    NavigationStack { SessionDetailView(session: ScopeStore.preview.sessions.last!) }
+    NavigationStack {
+        if let chat = ScopeStore.preview.sessions.first(where: { !$0.requests.isEmpty }) {
+            SessionDetailView(session: chat)
+        } else {
+            ContentUnavailableView("No preview session", systemImage: "questionmark.circle")
+        }
+    }
 }
 #Preview("Timeline") { NavigationStack { TimelineView(store: .preview) } }
 #Preview("Errors") { NavigationStack { ErrorsView(store: .preview) } }
 #Preview("Tools") { NavigationStack { ToolsView(store: .preview) } }
+#endif

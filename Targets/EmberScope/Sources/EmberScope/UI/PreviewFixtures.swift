@@ -1,6 +1,9 @@
 import Foundation
 import FoundationModels
 
+// Previews and their fixtures are DEBUG-only: a Release build of the library must not carry a
+// synthetic transcript or the code that builds it. Tests build DEBUG and use @testable import.
+#if DEBUG
 extension ScopeStore {
     /// A populated store for SwiftUI previews: a chat session with tools, a streamed turn, a tool call,
     /// a failed request, a hidden "title" session, notes, and model status.
@@ -82,3 +85,4 @@ extension ScopeStore {
         return ScopeStore(recorder: recorder)   // `init` folds synchronously
     }
 }
+#endif

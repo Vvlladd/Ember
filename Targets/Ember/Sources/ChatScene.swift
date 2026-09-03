@@ -28,15 +28,17 @@ struct ChatScene: View {
                         TokenGaugeView(budget: engine.budget)
                     }
                     ToolbarItem {
+                        // `Label`, not a bare `Image`: the toolbar still renders icon-only, but
+                        // VoiceOver and the macOS "Customize Toolbar" sheet get a name.
                         Button { showInspector.toggle() } label: {
-                            Image(systemName: "sidebar.trailing")
+                            Label("Context & Tokens", systemImage: "sidebar.trailing")
                         }
                         .help("Show context & tokens")
                     }
                 }
                 #if DEBUG
                 ToolbarItem {
-                    Button { openScope() } label: { Image(systemName: "waveform.path.ecg") }
+                    Button { openScope() } label: { Label("Ember Scope", systemImage: "waveform.path.ecg") }
                         .help("Ember Scope — sessions, tools, tokens and errors of the on-device model")
                 }
                 #endif

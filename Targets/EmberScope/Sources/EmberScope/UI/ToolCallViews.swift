@@ -14,9 +14,11 @@ struct ToolCallRow: View {
                     ProgressView().controlSize(.small).accessibilityLabel("Running")
                 }
             }
-            Text(ScopeFormatting.preview(call.start.arguments, max: 120)).font(.caption.monospaced()).lineLimit(2)
+            RedactableText(ScopeFormatting.preview(call.start.arguments, max: 120))
+                .font(.caption.monospaced()).lineLimit(2)
             if let output = call.end?.output {
-                Text("→ " + ScopeFormatting.preview(output, max: 120)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                RedactableText("→ " + ScopeFormatting.preview(output, max: 120))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
         }
         .padding(.vertical, 2)
@@ -31,7 +33,7 @@ struct ToolCallDetail: View {
             if let end = call.end {
                 Section("Result") {
                     LabeledContent("Duration", value: ScopeFormatting.duration(end.duration))
-                    if let output = end.output { Text(output).font(.callout).textSelection(.enabled) }
+                    if let output = end.output { RedactableText(output).font(.callout).textSelection(.enabled) }
                 }
             } else {
                 Section("Result") { Text("Running…").foregroundStyle(.secondary) }

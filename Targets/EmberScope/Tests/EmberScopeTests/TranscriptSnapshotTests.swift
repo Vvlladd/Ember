@@ -86,6 +86,20 @@ struct TranscriptSnapshotTests {
         #expect(red.entries[0].toolDefinitions == snap.entries[0].toolDefinitions)
     }
 
+    /// Ruling (final review D19): the entry detail printed structured segments twice, because
+    /// `TranscriptRendering.text` already joins them in. The view now skips the JSON block when the
+    /// text contains it — this pins the property the view relies on. `text` itself must NOT change:
+    /// token counting reads it.
+    @Test func renderedTextAlreadyContainsTheStructuredJSON() {
+        let snap = TranscriptSnapshot.make(from: Fixtures.transcript(), sessionID: sessionID, contextSize: 4096)
+        let calls = snap.entries[2]
+        let json = try? #require(calls.structuredJSON)
+        #expect(json != nil)
+        #expect(calls.text.contains(json ?? "\u{0}"))
+        // Entries with no structured segments keep their nil, so the section simply does not appear.
+        #expect(snap.entries[0].structuredJSON == nil)
+    }
+
     @Test func requestOptionsMirrorGenerationOptions() {
         #expect(RequestOptions(GenerationOptions()).samplingDescription == "default")
         #expect(RequestOptions(GenerationOptions(sampling: .greedy)).samplingDescription == "greedy")

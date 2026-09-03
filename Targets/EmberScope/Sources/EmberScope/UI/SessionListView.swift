@@ -5,7 +5,9 @@ struct SessionListView: View {
 
     var body: some View {
         List {
-            Section("Model") { ModelStatusCard(status: store.modelStatus) }
+            Section("Model") {
+                ModelStatusCard(status: store.modelStatus, isEnabled: store.isEnabled, isRecording: store.isRecording)
+            }
             Section {
                 if store.sessions.isEmpty {
                     ContentUnavailableView("No sessions yet", systemImage: "waveform.path.ecg",
@@ -47,9 +49,10 @@ struct SessionRow: View {
                 Text(session.createdAt, style: .time).font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
-                badge("\(session.requests.count) req", .blue)
-                badge("\(session.toolCalls.count) tools", .orange)
-                if !session.errors.isEmpty { badge("\(session.errors.count) errors", .red) }
+                badge("^[\(session.requests.count) request](inflect: true)", .blue)
+                // Same rule as errors: a zero badge is noise, not information.
+                if !session.toolCalls.isEmpty { badge("^[\(session.toolCalls.count) tool](inflect: true)", .orange) }
+                if !session.errors.isEmpty { badge("^[\(session.errors.count) error](inflect: true)", .red) }
                 if session.requests.contains(where: \.isInFlight) { ProgressView().controlSize(.mini).accessibilityLabel("Running") }
             }
             if let snap = session.latestSnapshot { ContextWindowBar(snapshot: snap, compact: true) }
@@ -57,7 +60,7 @@ struct SessionRow: View {
         .padding(.vertical, 2)
     }
 
-    private func badge(_ text: String, _ color: Color) -> some View {
+    private func badge(_ text: LocalizedStringKey, _ color: Color) -> some View {
         Text(text).font(.caption2).monospacedDigit()
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(color.opacity(0.15), in: Capsule()).foregroundStyle(color)

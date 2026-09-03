@@ -19,7 +19,7 @@ struct TranscriptEntryRow: View {
                 Spacer()
                 Text("\(entry.isExact ? "" : "~")\(ScopeFormatting.tokens(entry.tokens))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
-            Text(ScopeFormatting.preview(entry.text, max: 160)).font(.callout).lineLimit(2)
+            RedactableText(ScopeFormatting.preview(entry.text, max: 160)).font(.callout).lineLimit(2)
         }
         .padding(.vertical, 2)
     }
@@ -43,7 +43,9 @@ struct TranscriptEntryDetail: View {
             }
             if !entry.toolDefinitions.isEmpty {
                 Section("Tool definitions the model sees") {
-                    ForEach(entry.toolDefinitions, id: \.name) { def in
+                    // Keyed by position: the names come from the host's tools, and two same-named
+                    // definitions would break List diffing.
+                    ForEach(Array(entry.toolDefinitions.enumerated()), id: \.offset) { _, def in
                         VStack(alignment: .leading) {
                             Text(def.name).font(.callout.monospaced())
                             Text(def.description).font(.caption).foregroundStyle(.secondary)
@@ -51,8 +53,13 @@ struct TranscriptEntryDetail: View {
                     }
                 }
             }
-            Section("Text") { Text(entry.text).font(.callout).textSelection(.enabled) }
-            if let json = entry.structuredJSON { Section("Structured content") { CodeText(text: json) } }
+            Section("Text") { RedactableText(entry.text).font(.callout).textSelection(.enabled) }
+            // `TranscriptRendering.text` already joins structured segments in, so showing the JSON
+            // again would print the same bytes twice. (Do not change `text` itself — token counting
+            // reads it.)
+            if let json = entry.structuredJSON, !entry.text.contains(json) {
+                Section("Structured content") { CodeText(text: json) }
+            }
         }
         .textSelection(.enabled)
         .navigationTitle(ScopeStyle.label(entry.kind).capitalized)

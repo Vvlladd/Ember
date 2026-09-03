@@ -2,6 +2,11 @@ import SwiftUI
 
 struct ModelStatusCard: View {
     let status: ModelStatus?
+    /// `EmberScope.isEnabled` at the last refresh: a disabled inspector cannot capture anything, so
+    /// the refresh button would be a lie rather than a no-op.
+    var isEnabled: Bool = true
+    /// Refreshing while paused records nothing, so the button starts recording first.
+    var isRecording: Bool = true
 
     var body: some View {
         if let status {
@@ -21,9 +26,26 @@ struct ModelStatusCard: View {
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Model status not captured", systemImage: "cpu")
-                Text("Call EmberScope.start() at launch, or refresh now.").font(.caption).foregroundStyle(.secondary)
-                Button("Refresh model status") { EmberScope.refreshModelStatus() }
+                Text(caption).font(.caption).foregroundStyle(.secondary)
+                Button(isRecording ? "Refresh model status" : "Start recording & capture status", action: refresh)
+                    .disabled(!isEnabled)
             }
         }
+    }
+
+    private var caption: String {
+        if !isEnabled {
+            return "EmberScope is disabled in this build (ScopeConfiguration.isEnabled is false), so nothing can be captured."
+        }
+        return isRecording
+            ? "Call EmberScope.start() at launch, or refresh now."
+            : "Recording is paused, so a refresh would record nothing — this starts it first."
+    }
+
+    /// A refresh while paused used to be a silent no-op: `refreshModelStatus` records an event, and the
+    /// recorder drops every event while `isRecording` is false.
+    private func refresh() {
+        if !isRecording { EmberScope.start() }
+        EmberScope.refreshModelStatus()
     }
 }

@@ -27,7 +27,8 @@ struct RequestRow: View {
                 Spacer()
                 RequestStatusIcon(request: request)
             }
-            Text(request.promptText.map { ScopeFormatting.preview($0, max: 140) } ?? "(Prompt value — text resolved on completion)")
+            RedactableText(request.promptText.map { ScopeFormatting.preview($0, max: 140) }
+                           ?? "(Prompt value — text resolved on completion)")
                 .font(.callout).lineLimit(2)
             if let end = request.end {
                 HStack(spacing: 10) {
@@ -50,7 +51,9 @@ struct RequestDetail: View {
     var body: some View {
         List {
             Section("Prompt") {
-                Text(request.promptText ?? "(not captured — a Prompt value was used and the request has not completed)")
+                // `RequestObserver.fail` / `cancel` pass `resolvedPrompt: nil`, so only a SUCCESSFUL
+                // completion recovers the text from the transcript.
+                RedactableText(request.promptText ?? "(not captured — a Prompt value was used and the request did not complete successfully)")
                     .font(.callout).textSelection(.enabled)
             }
             Section("Options") {
@@ -77,7 +80,7 @@ struct RequestDetail: View {
                 }
             }
             if let output = request.end?.output {
-                Section("Output") { Text(output).font(.callout).textSelection(.enabled) }
+                Section("Output") { RedactableText(output).font(.callout).textSelection(.enabled) }
             }
             if let error = request.error {
                 Section("Error") { ErrorSummary(error: error) }
@@ -95,10 +98,15 @@ struct ErrorSummary: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Label(error.kind.title, systemImage: "exclamationmark.triangle.fill").foregroundStyle(ScopeStyle.error).font(.headline)
-            Text(error.message).font(.callout).textSelection(.enabled)
-            if let debug = error.debugDescription { Text(debug).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
-            if let recovery = error.recoverySuggestion { Label(recovery, systemImage: "lightbulb").font(.caption) }
-            if let reason = error.failureReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
+            RedactableText(error.message).font(.callout).textSelection(.enabled)
+            if let debug = error.debugDescription {
+                Text(debug).font(.caption.monospaced()).italic(ScopeRedaction.isRedacted(debug))
+                    .foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            if let recovery = error.recoverySuggestion {
+                Label { RedactableText(recovery) } icon: { Image(systemName: "lightbulb") }.font(.caption)
+            }
+            if let reason = error.failureReason { RedactableText(reason).font(.caption).foregroundStyle(.secondary) }
             if !error.underlyingChain.isEmpty {
                 Text("Error chain: " + error.underlyingChain.joined(separator: " › ")).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
             }

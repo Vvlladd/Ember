@@ -3,10 +3,11 @@ import SwiftUI
 struct ErrorsView: View {
     let store: ScopeStore
 
+    /// One pass over the errors, not one pass per kind — `body` runs on every projection change.
     private var grouped: [(ScopeErrorRecord.Kind, [ScopeErrorRecord])] {
-        ScopeErrorRecord.Kind.allCases.compactMap { kind in
-            let items = store.errors.filter { $0.kind == kind }
-            return items.isEmpty ? nil : (kind, items)
+        let byKind = Dictionary(grouping: store.errors, by: \.kind)
+        return ScopeErrorRecord.Kind.allCases.compactMap { kind in
+            byKind[kind].map { (kind, $0) }
         }
     }
 
@@ -21,11 +22,11 @@ struct ErrorsView: View {
                     ForEach(items) { error in
                         NavigationLink { ErrorDetailView(error: error) } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(error.message).font(.callout).lineLimit(2)
+                                RedactableText(error.message).font(.callout).lineLimit(2)
                                 HStack(spacing: 8) {
                                     if let tool = error.toolName { Text(tool).font(.caption.monospaced()) }
                                     if error.isRetryable { Text("retryable").font(.caption2) }
-                                    if let debug = error.debugDescription { Text(debug).font(.caption).lineLimit(1) }
+                                    if let debug = error.debugDescription { RedactableText(debug).font(.caption).lineLimit(1) }
                                 }
                                 .foregroundStyle(.secondary)
                             }

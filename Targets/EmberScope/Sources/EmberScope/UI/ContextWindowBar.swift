@@ -35,7 +35,10 @@ struct ContextWindowBar: View {
                     Text("\(ScopeFormatting.tokens(snapshot.usedTokens)) / \(ScopeFormatting.tokens(snapshot.contextSize))")
                         .monospacedDigit().bold()
                         .foregroundStyle(isOverBudget ? ScopeStyle.error : ScopeStyle.color(fraction: snapshot.fraction))
-                    Text("· \(ScopeFormatting.tokens(snapshot.remainingTokens)) remaining")
+                    // "0 remaining" reads like a coincidence; "N over" is the fact.
+                    Text(isOverBudget
+                         ? "· \(ScopeFormatting.tokens(snapshot.usedTokens - snapshot.contextSize)) over"
+                         : "· \(ScopeFormatting.tokens(snapshot.remainingTokens)) remaining")
                     Spacer()
                     Text(snapshot.isExact ? "exact" : "estimated")
                         .font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
@@ -45,10 +48,24 @@ struct ContextWindowBar: View {
                 legend
             }
         }
+        // The bar is a picture of a number: VoiceOver would otherwise read a stack of unlabelled
+        // rectangles (compact mode has no caption at all).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Context window")
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint(isOverBudget ? "Over budget by \(snapshot.usedTokens - snapshot.contextSize) tokens" : "")
     }
 
+    private var accessibilityValue: String {
+        let counts = snapshot.isExact ? "" : ", estimated"
+        return "\(snapshot.usedTokens) of \(snapshot.contextSize) tokens used\(counts)"
+    }
+
+    /// A five-kind transcript plus the tool-definition note overflows any single-line `HStack`, so the
+    /// legend wraps instead.
     private var legend: some View {
-        HStack(spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), alignment: .leading)],
+                  alignment: .leading, spacing: 4) {
             ForEach(segments, id: \.0) { kind, tokens in
                 Label {
                     Text("\(ScopeStyle.label(kind).capitalized) \(ScopeFormatting.tokens(tokens))").monospacedDigit()
@@ -58,8 +75,8 @@ struct ContextWindowBar: View {
             }
             if let tools = snapshot.toolsTokens {
                 Text(snapshot.toolSchemasIncluded
-                     ? "· tool definitions ≈ \(ScopeFormatting.tokens(tools)) (inside instructions)"
-                     : "· tool definitions ≥ \(ScopeFormatting.tokens(tools)) (inside instructions; schemas unavailable)")
+                     ? "tool definitions ≈ \(ScopeFormatting.tokens(tools)) (inside instructions)"
+                     : "tool definitions ≥ \(ScopeFormatting.tokens(tools)) (inside instructions; schemas unavailable)")
             }
         }
         .font(.caption).foregroundStyle(.secondary)
