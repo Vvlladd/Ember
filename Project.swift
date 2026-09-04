@@ -35,15 +35,19 @@ let emberResources: ResourceFileElements = modelsArePresent
 
 let project = Project(
     name: "Ember",
-    // Tuist's DEFAULT scheme grouping (`.byNameSuffix`) treats "Example" — alongside "Demo" — as a RUN
-    // suffix, so `EmberScopeExample` would be folded into the `EmberScope` scheme as its run target and
-    // never get one of its own. The example needs its own buildable scheme (`-scheme EmberScopeExample`
-    // is a documented gate), and the library's test scheme should not have to build an app. The lists
-    // below are Tuist 4's defaults with "Example" dropped from `run`.
+    // Tuist's DEFAULT scheme grouping (`.byNameSuffix`) is
+    //     build: ["Implementation", "Interface", "Mocks", "Testing"]
+    //     test:  ["Tests", "IntegrationTests", "UITests", "SnapshotTests"]
+    //     run:   ["App", "Demo", "Example"]
+    // (ProjectDescription 4.154.3). "Example" being a RUN suffix folds `EmberScopeExample` into the
+    // `EmberScope` scheme as its run target, so it never gets one of its own — but the example needs its
+    // own buildable scheme (`-scheme EmberScopeExample` is a documented gate), and the library's test
+    // scheme should not have to build an app. The lists below are those defaults verbatim, with "Example"
+    // — and nothing else — dropped from `run`.
     options: .options(automaticSchemesOptions: .enabled(targetSchemesGrouping: .byNameSuffix(
         build: ["Implementation", "Interface", "Mocks", "Testing"],
-        test: ["Tests", "UITests", "SnapshotTests"],
-        run: ["Demo"]))),
+        test: ["Tests", "IntegrationTests", "UITests", "SnapshotTests"],
+        run: ["App", "Demo"]))),
     targets: [
         .target(
             name: "FoundationChatKit",
