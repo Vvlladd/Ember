@@ -447,6 +447,7 @@ Every ruling below was made by the driver while the plan ran, recorded in the ex
 - Map `ModelManagerServices.ModelManagerError` chains to `ChatError.modelUnavailable` in Ember's own error mapping (Ember shows the raw error today).
 - Extract `Targets/EmberScope` into its own repository (the README carries the manifest; the extraction is smoke-tested).
 - If the `FoundationChatKit → EmberScope` link-time dependency is unwanted, replace it with an app-injected session-factory seam (the pattern the repo already uses for `ChatModelProvider` and `TextEmbedder`); `inspectionID` would need another route.
+- **From building the example app (2026-09-04):** the macOS window plumbing every host copies (~15 lines: a window id, a `#if DEBUG && os(macOS) Window("Ember Scope") { EmberScopeView() }` scene, the `EmberScopeCommands { openWindow }` branch, an `openScope()` helper) could collapse into a public `EmberScope.windowID` plus an `EmberScopeWindow()` scene and an `EmberScopeButton()`; a user-facing `SystemLanguageModel.Availability` → reason string helper (hosts always write that switch); a byte cap or per-string truncation for retained prompts (the ring buffer is bounded by event count only — a 34,000-character prompt is kept verbatim); and the Quick start should say explicitly that `EmberScope.start()` must run before any session is created, because a session built while the recorder is paused records neither its creation nor its tools.
 
 ## Flagged decisions for the user
 
