@@ -76,17 +76,8 @@ enum Scenario: CaseIterable, Identifiable {
         case .structured:
             model.sendStructured()
         case .cancelMidStream:
-            model.send(Self.longPrompt)
-            Task { @MainActor in
-                // Cancel once the first snapshot has landed. The deadline is the escape hatch for a
-                // machine with no Apple Intelligence, where no snapshot ever arrives — by then the turn
-                // has already failed and `cancel()` is a no-op, which is the honest outcome to show.
-                let deadline = Date().addingTimeInterval(3)
-                while model.isResponding, model.messages.last?.text.isEmpty ?? true, Date() < deadline {
-                    try? await Task.sleep(for: .milliseconds(50))
-                }
-                model.cancel()
-            }
+            // The poller lives on the model, which owns the turn it is allowed to cancel.
+            model.sendCancellingMidStream(Self.longPrompt)
         default:
             if let prompt { model.send(prompt) }
         }

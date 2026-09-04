@@ -33,6 +33,14 @@ final class ChatModel {
 
     /// The in-flight turn, so `cancel()` has something to cancel.
     private var turn: Task<Void, Never>?
+    /// Bumped when a turn starts and again when the session is replaced. Task cancellation is cooperative,
+    /// so a cancelled turn is still alive, still holding its `update` closure and still owing an
+    /// `endTurn()`; everything it writes is gated on the id it captured, so it can never touch the next
+    /// turn's bubble, `errorText`, `isResponding` or `turn`.
+    private var turnID = 0
+    /// The `cancelMidStream` scenario's poller. Stored so it dies with the session, and pinned to a turn
+    /// id so it can only ever cancel the turn it was started for.
+    private var canceller: Task<Void, Never>?
 
     static let instructions = """
         You are the assistant in a tiny demo app. Answer briefly — a couple of sentences at most unless \
@@ -84,10 +92,33 @@ final class ChatModel {
         turn?.cancel()
     }
 
+    /// Sends `text`, then cancels *that* turn once its first snapshot lands. The deadline is the escape
+    /// hatch for a machine with no Apple Intelligence, where no snapshot ever arrives — by then the turn
+    /// has already failed and `cancel()` is a no-op, which is the honest outcome to show.
+    func sendCancellingMidStream(_ text: String) {
+        send(text)
+        guard isResponding else { return }
+        let id = turnID
+        canceller?.cancel()
+        canceller = Task { @MainActor [weak self] in
+            let deadline = Date().addingTimeInterval(3)
+            while let model = self, model.turnID == id, model.isResponding,
+                  model.messages.last?.text.isEmpty ?? true, Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard let model = self, model.turnID == id else { return }
+            model.cancel()
+        }
+    }
+
     /// A brand-new session: a second session row in the console, with its own instructions, tools and
     /// context snapshot. The previous one stays in the console with everything it captured.
     func resetSession() {
         cancel()
+        canceller?.cancel()
+        canceller = nil
+        // After the cancel, so whatever is still winding down now belongs to a turn that no longer exists.
+        turnID += 1
         turn = nil
         isResponding = false
         session = Self.makeSession()
@@ -113,28 +144,31 @@ final class ChatModel {
     private func beginTurn(userText: String,
                            _ body: @escaping @MainActor ((String) -> Void) async throws -> Void) {
         guard !isResponding else { return }
+        turnID += 1
+        let id = turnID
         errorText = nil
         messages.append(ChatMessage(role: .user, text: userText))
         messages.append(ChatMessage(role: .assistant, text: ""))
         isResponding = true
         turn = Task { @MainActor [weak self] in
             do {
-                try await body { [weak self] text in self?.updateLastAssistantMessage(text) }
+                try await body { [weak self] text in self?.updateLastAssistantMessage(text, turn: id) }
             } catch {
                 // Everything is caught: a demo that crashes teaches nothing, and the interesting part of
                 // a failure is what the console made of it.
-                self?.errorText = String(describing: error)
+                if let self, self.turnID == id { self.errorText = String(describing: error) }
             }
-            self?.endTurn()
+            self?.endTurn(id)
         }
     }
 
-    private func updateLastAssistantMessage(_ text: String) {
-        guard let last = messages.indices.last, messages[last].role == .assistant else { return }
+    private func updateLastAssistantMessage(_ text: String, turn id: Int) {
+        guard turnID == id, let last = messages.indices.last, messages[last].role == .assistant else { return }
         messages[last].text = text
     }
 
-    private func endTurn() {
+    private func endTurn(_ id: Int) {
+        guard turnID == id else { return }
         if let last = messages.indices.last, messages[last].role == .assistant, messages[last].text.isEmpty {
             messages[last].text = errorText == nil ? "(no output)" : "(no output — see the error below)"
         }
