@@ -56,6 +56,60 @@ WindowGroup { … }.commands { EmberScopeCommands() }   // Debug ▸ Ember Scope
 That is the whole integration: swap `LanguageModelSession(` for `EmberScope.session(` where you create
 sessions, and pass tools there so their calls are timed. Return types are the SDK's own.
 
+## Example app
+
+`EmberScopeExample` is a minimal Foundation Models chat app whose only job is to host EmberScope — the
+netfox example-project equivalent. It depends on **`EmberScope` alone** (never on Ember's own
+`FoundationChatKit`), so what it does is exactly what the Quick start above prescribes, in about ten lines.
+
+```bash
+tuist generate --no-open
+open Ember.xcworkspace     # scheme: EmberScopeExample · destination: My Mac or an iOS simulator
+```
+
+Launch it, pick something from the **Scenarios** menu, then open the console (the toolbar's
+`waveform.path.ecg` button, ⌘⇧E on the Mac, or shake on iOS). Each scenario names what it should put in
+the console, both as a menu subtitle and as a "Look for:" line under the transcript.
+
+| Scenario | Prompt | What to look for |
+|---|---|---|
+| **Calculator tool** | `What is 4892 * 1773? Use the calculator.` | A `calculator` tool call under the request in Session detail, with its arguments, result and duration. |
+| **Clock tool** | `What time is it right now? Use the clock tool.` | A `clock` tool call under the request, and the clock's call count and mean duration in the Tools tab. |
+| **Long streamed answer** | Five paragraphs on managing a 4,096-token window | The request's chunk count and time-to-first-token, and the context-window bar growing. |
+| **Cancel mid-stream** | the same long prompt, cancelled after the first snapshot | A request whose status is cancelled — and no error row for it. |
+| **Structured output** | `Tell me about Lisbon, Portugal.` | A request whose response format is `CityFacts`, with the guided-generation schema alongside it. |
+| **Tool failure** | `Call the flaky tool with the input 'demo'.` | Two rows in the Errors tab: the flaky tool's own failure, and the request error that carries it. |
+| **Over budget** | ~6,000 words of repeated notes | A context snapshot over budget (the bar turns red) and an `exceededContextWindowSize` error. |
+| **New session** | — (replaces the session) | A second session row labelled `example`; the first keeps everything it captured. |
+
+The example registers three self-contained tools — `calculator`, `clock` and `flaky`, which always throws
+so the tool-error path is deterministic on any machine — and one `@Generable` type, `CityFacts`.
+
+### Does it work? (the by-hand checklist)
+
+1. **Launch** → the availability banner reflects the machine: the reason on a Mac without Apple
+   Intelligence, no banner on a device with it (or on a simulator, which reports *available*).
+2. **Calculator** → the reply contains 8,673,516, and the console shows session `example` with three
+   tools, one request, one `calculator` tool call with a duration, and a context snapshot whose tool
+   definitions sit inside the instructions entry.
+3. **Cancel mid-stream** → a request with status cancelled and no error.
+4. **Tool failure** → the Errors tab shows a `toolCallFailed` error whose chain names `ExampleToolError`,
+   linked to the request.
+5. **Over budget** → the context bar turns red / "N over", and an `exceededContextWindowSize` error.
+6. **New session** → two session rows; the older one keeps its history.
+7. **Without Apple Intelligence** every scenario ends in the classified `assetsUnavailable` (or
+   `unavailable`) error instead — and the console still shows the session, the prompt, the request and the
+   context snapshot. The example works as a failure-path demo everywhere.
+
+> [!NOTE]
+> Steps 2–6 need real generation. On a simulator, or on a Mac without Apple Intelligence, every turn fails
+> before the model runs: you get step 7 — sessions, prompts, requests, context snapshots and classified
+> errors, but no replies and no tool calls (the model never gets to call a tool).
+
+The example is a Tuist target of this repository and is **not** part of the extraction manifest below —
+SwiftPM has no app targets. A package extracted from `Targets/EmberScope` would carry the example as a
+separate Xcode project instead.
+
 ## What you see
 
 | Screen | Contents |

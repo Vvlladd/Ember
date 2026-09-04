@@ -83,6 +83,16 @@ xcodebuild -workspace Ember.xcworkspace -scheme Ember \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -10
 ```
 
+Keep EmberScope's example host building too — it is the app that proves the library needs nothing else:
+
+```bash
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample \
+  -destination 'platform=macOS' build 2>&1 | tail -10
+
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -10
+```
+
 Build Release once as well — it is the only build that proves the `#if DEBUG` gating around every
 EmberScope surface still compiles:
 
