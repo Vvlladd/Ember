@@ -40,8 +40,9 @@ final class ChatModel {
         date and time, and the flaky tool only when the user asks for it by name.
         """
 
-    /// Fixed so the `structured` scenario and its prompt cannot drift apart.
-    static let structuredPrompt = "Tell me about Lisbon, Portugal."
+    /// Fixed so the `structured` scenario and its prompt cannot drift apart. `nonisolated` because
+    /// `Scenario.prompt` reads it from outside the main actor.
+    nonisolated static let structuredPrompt = "Tell me about Lisbon, Portugal."
 
     init() {
         self.session = Self.makeSession()

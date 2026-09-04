@@ -10,6 +10,7 @@ let emberScopeWindowID = "emberscope"
 /// mirroring `Targets/Ember/Sources/EmberApp.swift` — in Release this is a plain chat app.
 @main
 struct ExampleApp: App {
+    @State private var model: ChatModel
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
@@ -17,17 +18,19 @@ struct ExampleApp: App {
     init() {
         #if DEBUG
         // Must run BEFORE any session is created: the recorder is paused until `start()`, so a session
-        // built earlier would never record its creation, tools or context snapshot.
+        // built earlier would never record its creation, tools or context snapshot. Hence the explicit
+        // ordering here rather than a default value on the property.
         EmberScope.start()
         #endif
+        _model = State(initialValue: ChatModel())
     }
 
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            ChatScreen().emberScope()
+            ChatScreen(model: model).emberScope()
             #else
-            ChatScreen()
+            ChatScreen(model: model)
             #endif
         }
         #if DEBUG
