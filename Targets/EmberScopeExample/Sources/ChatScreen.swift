@@ -5,7 +5,7 @@ import EmberScope
 /// A deliberately plain chat: bubbles, a composer, two banners and a Scenarios menu. Everything
 /// interesting happens in the console — this screen exists to drive it.
 struct ChatScreen: View {
-    @Bindable var model: ChatModel
+    let model: ChatModel
     @State private var draft = ""
     @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
@@ -50,6 +50,9 @@ struct ChatScreen: View {
             } label: {
                 Label("Scenarios", systemImage: "list.bullet.rectangle")
             }
+            // A scenario picked mid-turn would set the "Look for" hint and then have its send silently
+            // dropped, advertising something the console does not contain.
+            .disabled(model.isResponding)
             .help("Run a scenario, then open Ember Scope to see what it recorded")
         }
         if model.isResponding {
@@ -147,9 +150,17 @@ struct ChatScreen: View {
                 .padding()
             }
             .onChange(of: model.messages.last?.text) { _, _ in
-                guard let last = model.messages.last?.id else { return }
-                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(last, anchor: .bottom) }
+                withAnimation(.easeOut(duration: 0.15)) { scrollToBottom(proxy) }
             }
+        }
+    }
+
+    /// While a turn is in flight the spinner is the bottom-most view, so that is what "the bottom" means.
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        if model.isResponding {
+            proxy.scrollTo(Self.progressID, anchor: .bottom)
+        } else if let last = model.messages.last?.id {
+            proxy.scrollTo(last, anchor: .bottom)
         }
     }
 
@@ -204,6 +215,10 @@ private struct MessageBubble: View {
             if isUser { Spacer(minLength: 40) }
             Text(message.text)
                 .textSelection(.enabled)
+                // The over-budget scenario sends ~34 KB. Rendering all of it, selectable and with an
+                // animated scroll on top, makes the demo's most spectacular scenario its jankiest.
+                .lineLimit(isUser ? 12 : nil)
+                .truncationMode(.tail)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(isUser ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.14),

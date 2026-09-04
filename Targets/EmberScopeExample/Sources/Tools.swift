@@ -70,9 +70,10 @@ struct ClockTool: Tool {
     }
 }
 
-/// Always throws. One silly tool buys a deterministic tool-error path: the inspector then shows TWO error
-/// rows — the tool's own failure, and the request failure that carries it — on every machine, with or
-/// without Apple Intelligence.
+/// Always throws. One silly tool buys a deterministic tool-error path wherever the model actually runs:
+/// the inspector then shows TWO error rows — the tool's own failure, and the request failure that carries
+/// it. Without Apple Intelligence the request fails at `assetsUnavailable` before any tool is called, so
+/// this is the one scenario that needs a machine that can generate.
 struct FlakyTool: Tool {
     let name = "flaky"
     let description = "A tool that always fails. Call it when the user explicitly asks for the flaky tool."

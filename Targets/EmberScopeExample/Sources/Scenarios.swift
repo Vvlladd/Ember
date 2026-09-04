@@ -72,7 +72,6 @@ enum Scenario: CaseIterable, Identifiable {
         switch self {
         case .newSession:
             model.resetSession()
-            model.lookFor = lookFor      // resetSession clears the screen, so restate the hint
         case .structured:
             model.sendStructured()
         case .cancelMidStream:
