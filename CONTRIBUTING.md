@@ -99,6 +99,9 @@ EmberScope surface still compiles:
 ```bash
 xcodebuild -workspace Ember.xcworkspace -scheme Ember \
   -configuration Release -destination 'platform=macOS' build 2>&1 | tail -10
+
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample \
+  -configuration Release -destination 'platform=macOS' build 2>&1 | tail -10
 ```
 
 The expected test result is `** TEST SUCCEEDED **`.

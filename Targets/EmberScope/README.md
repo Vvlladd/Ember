@@ -53,6 +53,9 @@ ContentView().emberScope()                            // attach ONCE per scene �
 WindowGroup { … }.commands { EmberScopeCommands() }   // Debug ▸ Ember Scope  ⌘⇧E
 ```
 
+`EmberScope.start()` must run before any session is created: the recorder starts paused, so a session
+built earlier records neither its creation, nor its tools, nor its first context snapshot.
+
 That is the whole integration: swap `LanguageModelSession(` for `EmberScope.session(` where you create
 sessions, and pass tools there so their calls are timed. Return types are the SDK's own.
 
@@ -83,7 +86,8 @@ the console, both as a menu subtitle and as a "Look for:" line under the transcr
 | **New session** | — (replaces the session) | A second session row labelled `example`; the first keeps everything it captured. |
 
 The example registers three self-contained tools — `calculator`, `clock` and `flaky`, which always throws
-so the tool-error path is deterministic on any machine — and one `@Generable` type, `CityFacts`.
+so the tool-error path is deterministic wherever the model actually runs (without Apple Intelligence the
+request fails before any tool is called) — and one `@Generable` type, `CityFacts`.
 
 ### Does it work? (the by-hand checklist)
 

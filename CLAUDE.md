@@ -29,6 +29,7 @@ xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample -destination '
 
 # Release too — it is the only build that proves the #if DEBUG gating still compiles:
 xcodebuild -workspace Ember.xcworkspace -scheme Ember -configuration Release -destination 'platform=macOS' build 2>&1 | tail -10
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample -configuration Release -destination 'platform=macOS' build 2>&1 | tail -10
 ```
 
 - **SourceKit/editor diagnostics are unreliable here** ("No such module 'Testing'", "cannot find type …") — there is no module graph in the editor. **Ground truth is the xcodebuild run.** Trust it, not the squiggles.
