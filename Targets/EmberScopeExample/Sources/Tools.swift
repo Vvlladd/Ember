@@ -17,29 +17,25 @@ struct CalculatorTool: Tool {
         var expression: String
     }
 
-    /// Digits, a decimal point, the four operators, parentheses and spaces. Nothing else — `NSExpression`
-    /// treats `%` and `$` as format tokens and raises an Objective-C exception on malformed input, which
-    /// Swift cannot catch. So the guard IS the allowlist; there is nothing here for a `catch` to do.
-    private static let allowed = CharacterSet(charactersIn: "0123456789.+-*/() ")
+    /// A pure recursive-descent evaluator, not `NSExpression`: the model authors the expression string and
+    /// guided generation constrains it to *a String*, so an unbalanced paren or a trailing operator is a
+    /// realistic input — and `NSExpression(format:)` raises an Objective-C exception Swift cannot catch on
+    /// exactly those. The engine throws instead, which a demo can survive.
+    private let engine = CalculatorEngine()
 
     func call(arguments: Arguments) async throws -> String {
-        let expression = arguments.expression.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !expression.isEmpty, expression.unicodeScalars.allSatisfy(Self.allowed.contains) else {
-            return "Couldn't evaluate '\(arguments.expression)' — use only numbers, + - * / and parentheses."
+        do {
+            return Self.format(try engine.evaluate(arguments.expression))
+        } catch {
+            return "Couldn't evaluate '\(arguments.expression)'."
         }
-        // NSExpression does INTEGER division on integer literals (7/2 = 3). Widen bare integers to
-        // doubles first so the demo cannot hand back a quietly wrong answer.
-        let widened = expression.replacingOccurrences(of: #"(?<![\d.])(\d+)(?![\d.])"#,
-                                                      with: "$1.0", options: .regularExpression)
-        guard let value = NSExpression(format: widened).expressionValue(with: nil, context: nil) as? NSNumber
-        else { return "Couldn't evaluate '\(arguments.expression)'." }
-        return Self.format(value.doubleValue)
     }
 
     /// Renders whole numbers without a trailing ".0".
-    static func format(_ value: Double) -> String {
+    private static func format(_ value: Double) -> String {
         guard value.isFinite else { return "undefined" }
         let trimmed = (value * 1e10).rounded() / 1e10
+        guard trimmed.isFinite else { return "undefined" }   // ≥ ~1e305 overflows the ×1e10 above
         if trimmed == trimmed.rounded(), abs(trimmed) < 1e15 { return String(Int(trimmed)) }
         return String(trimmed)
     }
