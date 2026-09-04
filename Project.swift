@@ -35,6 +35,15 @@ let emberResources: ResourceFileElements = modelsArePresent
 
 let project = Project(
     name: "Ember",
+    // Tuist's DEFAULT scheme grouping (`.byNameSuffix`) treats "Example" — alongside "Demo" — as a RUN
+    // suffix, so `EmberScopeExample` would be folded into the `EmberScope` scheme as its run target and
+    // never get one of its own. The example needs its own buildable scheme (`-scheme EmberScopeExample`
+    // is a documented gate), and the library's test scheme should not have to build an app. The lists
+    // below are Tuist 4's defaults with "Example" dropped from `run`.
+    options: .options(automaticSchemesOptions: .enabled(targetSchemesGrouping: .byNameSuffix(
+        build: ["Implementation", "Interface", "Mocks", "Testing"],
+        test: ["Tests", "UITests", "SnapshotTests"],
+        run: ["Demo"]))),
     targets: [
         .target(
             name: "FoundationChatKit",
@@ -109,6 +118,25 @@ let project = Project(
             deploymentTargets: deployment,
             sources: ["Targets/Ember/Tests/**"],
             dependencies: [.target(name: "Ember")]
+        ),
+        // The EmberScope example host — netfox's "example project" equivalent. It depends on
+        // EmberScope ALONE (never FoundationChatKit): that dependency shape is the proof the library
+        // drops into any Foundation Models app, so keep this list at one entry.
+        .target(
+            name: "EmberScopeExample",
+            destinations: appDestinations,
+            product: .app,
+            bundleId: "dev.iosunpi.emberscope.example",
+            deploymentTargets: deployment,
+            infoPlist: .extendingDefault(with: [
+                "CFBundleDisplayName": "EmberScope Example",
+                "CFBundleShortVersionString": "0.1",
+                "CFBundleVersion": "1",
+                "LSApplicationCategoryType": "public.app-category.developer-tools",
+                "UILaunchScreen": [:],
+            ]),
+            sources: ["Targets/EmberScopeExample/Sources/**"],
+            dependencies: [.target(name: "EmberScope")]
         ),
     ]
 )
