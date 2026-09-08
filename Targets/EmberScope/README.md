@@ -234,12 +234,12 @@ replaced by `SystemLanguageModel.tokenCount(for:)` values asynchronously where a
 
 Add this repository as a Swift package — the same way you add netfox:
 
-- **Xcode:** File ▸ Add Package Dependencies… ▸ paste `https://github.com/Vvlladd/Ember` ▸ add the `EmberScope` library to your app target.
+- **Xcode:** File ▸ Add Package Dependencies… ▸ paste `https://github.com/Vvlladd/Ember` ▸ choose **Up to Next Major** from `0.1.0` ▸ add the `EmberScope` library to your app target.
 - **Package.swift:**
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Vvlladd/Ember", branch: "main"),   // or from: "0.1.0" once tagged
+    .package(url: "https://github.com/Vvlladd/Ember", from: "0.1.0"),
 ],
 targets: [
     .target(name: "MyApp", dependencies: [.product(name: "EmberScope", package: "Ember")]),
