@@ -33,6 +33,21 @@ let emberResources: ResourceFileElements = modelsArePresent
       ])
     : .resources([.glob(pattern: "Targets/Ember/Resources/**")])
 
+// Xcode's "Update to recommended settings" check flags a generated project that lacks these. They are
+// Xcode 15+/26 defaults for NEW projects (script sandboxing, string catalogs, asset symbols, module
+// verification); Tuist's `.recommended` target defaults do not set them at the project level, and the
+// generated .xcodeproj is git-ignored, so "Perform Changes" in Xcode would be undone by the next
+// `tuist generate`. Setting them here is the durable fix. Mirror in Tuist/Package.swift for the
+// SPM-generated dependency projects.
+let xcodeRecommended: SettingsDictionary = [
+    "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
+    "ENABLE_MODULE_VERIFIER": "YES",
+    "ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS": "YES",
+    "LOCALIZATION_PREFERS_STRING_CATALOGS": "YES",
+    "SWIFT_EMIT_LOC_STRINGS": "YES",
+    "DEAD_CODE_STRIPPING": "YES",
+]
+
 let project = Project(
     name: "Ember",
     // Tuist's DEFAULT scheme grouping (`.byNameSuffix`) is
@@ -48,6 +63,7 @@ let project = Project(
         build: ["Implementation", "Interface", "Mocks", "Testing"],
         test: ["Tests", "IntegrationTests", "UITests", "SnapshotTests"],
         run: ["App", "Demo"]))),
+    settings: .settings(base: xcodeRecommended),
     targets: [
         .target(
             name: "FoundationChatKit",
