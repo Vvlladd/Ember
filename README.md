@@ -120,7 +120,25 @@ let session = EmberScope.session(tools: tools, instructions: instructions, label
 ContentView().emberScope()
 ```
 
-**Use it in your own app.** Add `https://github.com/Vvlladd/Ember` as a Swift package (File ▸ Add Package Dependencies… in Xcode, or `.package(url:)` in your manifest) and pick the `EmberScope` library — the root `Package.swift` exposes only the inspector, not the Ember app. Details and the four-line integration are in the [library README](Targets/EmberScope/README.md).
+### Install EmberScope in your own app
+
+EmberScope is a Swift package. Add it the same way you add netfox:
+
+1. In Xcode: **File ▸ Add Package Dependencies…**, paste `https://github.com/Vvlladd/Ember`, choose **Up to Next Major** from `0.1.0`, and add the **EmberScope** library to your app target.
+2. Or in your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/Vvlladd/Ember", from: "0.1.0"),
+],
+targets: [
+    .target(name: "MyApp", dependencies: [.product(name: "EmberScope", package: "Ember")]),
+]
+```
+
+3. `import EmberScope`, then the four lines above: `EmberScope.start()` at launch (inside `#if DEBUG`), create sessions with `EmberScope.session(…)`, and attach `.emberScope()` to your root view. Shake, press ⌘⇧E, or call `EmberScope.present()` to open the console.
+
+The root `Package.swift` exposes only the inspector, not the Ember app, so your build pulls in nothing else. Requirements: iOS / iPadOS / macOS 26 and Xcode 26. Full API tour, configuration and limitations: the [library README](Targets/EmberScope/README.md).
 
 It is in-memory only, metadata-only in the unified log, and inert outside DEBUG. The framework itself is still linked into Release builds — Ember's provider creates every session through it unconditionally — but with recording disabled it is a pass-through: nothing is captured, logged or retained. See the [library README](Targets/EmberScope/README.md) for the API and how to use it in your own app. To see it working without reading Ember first, run the `EmberScopeExample` scheme: a minimal chat app that depends on EmberScope alone, with a Scenarios menu that drives every inspector path — tool calls, cancellation, guided generation, tool failures and context overflow — and names what each one should put in the console ([how to run](Targets/EmberScope/README.md#example-app)).
 
