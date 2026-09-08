@@ -1,5 +1,6 @@
 import SwiftUI
 import FoundationChatKit
+import EmberScope
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -7,6 +8,9 @@ import UIKit
 struct UnavailableView: View {
     let reason: ModelUnavailableReason
     var retry: (() -> Void)? = nil
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     var body: some View {
         ContentUnavailableView {
@@ -20,6 +24,9 @@ struct UnavailableView: View {
             if reason == .modelNotReady, let retry {
                 Button("Retry", action: retry)
             }
+            #if DEBUG
+            Button("Open Ember Scope") { openScope() }
+            #endif
         }
         .padding()
     }
@@ -48,6 +55,18 @@ struct UnavailableView: View {
         case .unknown: "questionmark.circle"
         }
     }
+    /// The chat toolbar is unreachable while the model is unavailable, so keep the inspector — whose
+    /// model card explains WHY — one tap away, with the same presentation ChatScene uses.
+    #if DEBUG
+    private func openScope() {
+        #if os(macOS)
+        openWindow(id: emberScopeWindowID)
+        #else
+        EmberScope.present()
+        #endif
+    }
+    #endif
+
     private func openSettings() {
         #if canImport(UIKit)
         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }

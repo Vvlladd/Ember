@@ -1,12 +1,12 @@
 # Ember — Architecture
 
-Three views of the system, from app-level down to classes. Editable Excalidraw sources live in [`docs/diagrams/`](diagrams/) (open with [excalidraw.com](https://excalidraw.com) or the VS Code extension); the Mermaid versions below render on GitHub. The memory/RAG pipeline has its own diagram in the [README](../README.md#how-memory-works).
+Four views of the system, from app-level down to classes and the developer inspector. Editable Excalidraw sources live in [`docs/diagrams/`](diagrams/) (open with [excalidraw.com](https://excalidraw.com) or the VS Code extension); the Mermaid versions below render on GitHub. The memory/RAG pipeline has its own diagram in the [README](../README.md#transparent-memory).
 
 ## 1. High-level architecture
 
 Source: [`diagrams/ember-app-architecture.excalidraw`](diagrams/ember-app-architecture.excalidraw)
 
-Two Tuist targets. All decision logic lives in **FoundationChatKit** behind protocol seams, testable with mocks on any machine (258 tests, no Apple-Intelligence device needed). The app target is thin SwiftUI binding.
+Three Tuist targets. All decision logic lives in **FoundationChatKit** behind protocol seams, testable with mocks on any machine (261 tests, no Apple-Intelligence device needed). The app target is thin SwiftUI binding. **EmberScope** (§4, 88 tests) is a self-contained inspector framework: both of the other targets link it, and it imports neither of them.
 
 ```mermaid
 flowchart TD
@@ -58,7 +58,7 @@ Everything competes for **4,096 tokens** (`SystemLanguageModel.contextSize`): in
 ```mermaid
 flowchart TD
     subgraph COUNT["Token counting (two tiers)"]
-        EST["LIVE estimate (sync)<br/>TokenEstimator: ceil(chars / 3.5) + 1/CJK scalar<br/>drives the gauge while typing"]
+        EST["LIVE estimate (sync)<br/>TokenEstimator: non-CJK chars / 3.5 rounded up, + 1 per CJK scalar<br/>drives the gauge while typing"]
         EXA["EXACT refresh (async, 26.4+)<br/>SystemLanguageModel.tokenCount per line, cached<br/>after each turn + on resume"]
         BRK["TokenBudgetCalculator.snapshot / breakdown<br/>one budget line per entry + per tool schema digest<br/>buckets: Instructions / Tools / Memory / History<br/>+ 'Reserved for reply: 512'"]
         MET["TokenMeterView — 4-tier color vs 4096"]
@@ -195,3 +195,49 @@ Load-bearing invariants (each one is test-pinned):
 - **Extraction is grounded** — facts contain no proper noun the user didn't type (case/diacritic-folded), and the extractor never sees assistant text.
 - **Every session-construction path re-registers tools** (initial, restore, overflow-seeded) — miss one and tools silently vanish.
 - **Capability methods return `nil` on unavailability** — the app degrades (no title, no extraction, no compaction summary) instead of erroring.
+
+## 4. EmberScope — developer inspector
+
+Library README: [`Targets/EmberScope/README.md`](../Targets/EmberScope/README.md) (no Excalidraw source; the Mermaid below is the diagram)
+
+**EmberScope** is the third target: a netfox-style in-app inspector for Apple Foundation Models, kept deliberately independent of the rest of Ember so it can be lifted into any Foundation Models app. `LanguageModelSession` is `final`, so EmberScope wraps rather than swizzles — `InspectedSession` mirrors the SDK's `respond` / `streamResponse` / `prewarm` surface and returns the SDK's own `Response` and `Snapshot` values, while `InspectedTool` forwards a `Tool` and times its calls. Four layers, each independently testable: **capture** (wrappers plus pure observers), **record** (one ordered event log), **present** (fold into an observable projection), **export**.
+
+```mermaid
+flowchart LR
+    subgraph HOST["Host app (Ember or any FM app)"]
+        APP["App code"] -->|"EmberScope.session(…)"| IS["InspectedSession<br/>mirrors LanguageModelSession API"]
+        IS -->|owns| LMS["LanguageModelSession (SDK, final)"]
+        IS -->|wraps each tool| IT["InspectedTool&lt;Base&gt;"]
+        IT --> TOOL["app Tool"]
+    end
+    subgraph CAPTURE["Capture (pure, testable)"]
+        RO["RequestObserver<br/>duration · TTFT · chunks"]
+        TS["TranscriptSnapshot<br/>Transcript → ScopeEntry[] + tokens"]
+        EC["ScopeErrorClassifier<br/>GenerationError / ToolCallError / NSError chain"]
+        TC["TokenCounting seam<br/>estimator now · exact 26.4+ async"]
+    end
+    subgraph RECORD["Record"]
+        REC["ScopeRecorder (Mutex)<br/>sequence · ring buffer · sinks"]
+        SINK["OSLogSink · custom ScopeSink"]
+    end
+    subgraph PRESENT["Present"]
+        ST["ScopeStore (@MainActor @Observable)<br/>fold(events) → SessionRecord[]"]
+        UI["EmberScopeView<br/>Sessions · Timeline · Errors · Tools"]
+        EX["ScopeExport<br/>JSON · Markdown · ShareLink"]
+    end
+    IS --> RO & TS & EC
+    IT --> EC
+    TS --> TC
+    RO & TS & EC & TC --> REC
+    REC --> SINK
+    REC -->|coalesced flush| ST --> UI --> EX
+```
+
+Ember plugs in at four points. `FoundationModelProvider` builds every chat session through `EmberScope.session(label: "chat")` on all three construction paths (fresh, restored, overflow-seeded); the hidden utility generations get their own labels (`title`, `summary`, `summary.structured`, `extract`), so the sessions the user never sees become visible. `ConversationEngine` annotates the timeline with `EmberScope.note` at the moments that are otherwise invisible — retrieval hits, proactive and overflow compaction, transient-error retries — carrying counts only, never user text. The app presents it: `EmberScope.start()` in `EmberApp.init`, a sheet plus shake gesture on iOS, a dedicated window and Debug ▸ Ember Scope (⌘⇧E) on macOS. Every one of those app surfaces is `#if DEBUG`, so a Release build of Ember contains none of them. The **framework itself is still linked** into Release — the provider builds sessions through it unconditionally — but with recording disabled it is a pass-through: nothing is captured, logged or retained.
+
+Load-bearing invariants (each one is test-pinned):
+
+- **Wrappers rethrow unchanged** — an `InspectedSession` call records the classified error and then rethrows the original value, so inspection can never change what the host app catches. (Test-pinned for `InspectedTool`; enforced by construction in `InspectedSession` — a throwing `LanguageModelSession` cannot be built in unit tests.)
+- **Disabled means pass-through** — when `ScopeConfiguration.isEnabled` is false (the default outside DEBUG) every wrapper calls straight through to the SDK, records nothing, and allocates no per-request state (the session still allocates its observer and resolver once).
+- **Tool definitions are counted inside the instructions entry** — that is where the model actually sees them; the separate tools figure is informational and must never be added to the used total.
+- **Events are immutable; the store folds** — the recorder only appends, and `ScopeStore.fold` is pure, so the same events in any order produce the same projection and the fold can run off the main actor.

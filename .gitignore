@@ -7,3 +7,6 @@ Derived/
 DerivedData/
 *.xcuserstate
 Targets/Ember/Resources/Models/
+
+# superpowers SDD scratch (ledgers, briefs, review packages)
+.superpowers/

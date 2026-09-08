@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import EmberScope
 import os
 
 @MainActor
@@ -45,14 +46,13 @@ public final class FoundationModelProvider: ChatModelProvider {
     }
 
     public func makeSession(settings: GenerationSettings, tools: [any Tool], restoring encodedTranscript: Data?) -> any ChatSessionHandle {
-        let session: LanguageModelSession
+        let session: InspectedSession
         if let data = encodedTranscript,
            let transcript = try? JSONDecoder().decode(Transcript.self, from: data) {
-            session = LanguageModelSession(tools: tools, transcript: transcript)
-        } else if let instructions = settings.instructions {
-            session = LanguageModelSession(tools: tools, instructions: instructions)
+            session = EmberScope.session(tools: tools, transcript: transcript, label: "chat")
         } else {
-            session = LanguageModelSession(tools: tools)
+            // String? overload: nil instructions behaves exactly like LanguageModelSession(tools:).
+            session = EmberScope.session(tools: tools, instructions: settings.instructions, label: "chat")
         }
         session.prewarm()
         return FoundationModelSession(session: session, settings: settings)
@@ -78,8 +78,7 @@ public final class FoundationModelProvider: ChatModelProvider {
             let base = settings.instructions.map { $0 + "\n\n" } ?? ""
             combined = base + "Summary of earlier conversation:\n" + recap
         }
-        let session = combined.map { LanguageModelSession(tools: tools, instructions: $0) }
-            ?? LanguageModelSession(tools: tools)
+        let session = EmberScope.session(tools: tools, instructions: combined, label: "chat")
         session.prewarm()
         return FoundationModelSession(session: session, settings: settings)
     }
@@ -91,8 +90,8 @@ public final class FoundationModelProvider: ChatModelProvider {
 
     public func summarize(_ text: String) async -> String? {
         guard case .available = availability else { return nil }
-        let session = LanguageModelSession(
-            instructions: "You compress chat history into a brief, factual summary.")
+        let session = EmberScope.session(
+            instructions: "You compress chat history into a brief, factual summary.", label: "summary")
         do {
             let response = try await session.respond(
                 to: "Summarize the following conversation in a few sentences, preserving names, facts, and decisions:\n\(text)",
@@ -106,8 +105,9 @@ public final class FoundationModelProvider: ChatModelProvider {
 
     public func summarizeStructured(_ text: String) async -> ConversationSummary? {
         guard case .available = availability else { return nil }
-        let session = LanguageModelSession(
-            instructions: "You compress chat history into a structured recap: a brief summary, key topics, and durable user preferences (third person).")
+        let session = EmberScope.session(
+            instructions: "You compress chat history into a structured recap: a brief summary, key topics, and durable user preferences (third person).",
+            label: "summary.structured")
         do {
             let response = try await session.respond(
                 to: "Summarize the following conversation. Preserve names, facts, and decisions.\n\(text)",
@@ -130,16 +130,17 @@ public final class FoundationModelProvider: ChatModelProvider {
 
 @MainActor
 final class FoundationModelSession: ChatSessionHandle {
-    private let session: LanguageModelSession
+    private let session: InspectedSession
     private let settings: GenerationSettings
 
-    init(session: LanguageModelSession, settings: GenerationSettings) {
+    init(session: InspectedSession, settings: GenerationSettings) {
         self.session = session
         self.settings = settings
     }
 
     var isResponding: Bool { session.isResponding }
     var contextEntries: [ContextEntry] { TranscriptMapping.entries(from: session.transcript) }
+    var inspectionID: UUID? { session.id }
 
     private var options: GenerationOptions {
         GenerationOptions(temperature: settings.temperature, maximumResponseTokens: settings.maximumResponseTokens)
@@ -151,7 +152,8 @@ final class FoundationModelSession: ChatSessionHandle {
         return AsyncThrowingStream { continuation in
             let producer = Task { @MainActor in
                 do {
-                    let responseStream = session.streamResponse(to: Prompt(prompt), options: options)
+                    // String overload so EmberScope captures the prompt text up front.
+                    let responseStream = session.streamResponse(to: prompt, options: options)
                     for try await snapshot in responseStream {
                         if Task.isCancelled { break }
                         continuation.yield(snapshot.content)
@@ -167,7 +169,7 @@ final class FoundationModelSession: ChatSessionHandle {
 
     func respond(prompt: String) async throws -> String {
         do {
-            return try await session.respond(to: Prompt(prompt), options: options).content
+            return try await session.respond(to: prompt, options: options).content
         } catch {
             throw Self.map(error)
         }

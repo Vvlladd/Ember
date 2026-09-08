@@ -50,7 +50,7 @@ Generated `.xcodeproj` and `.xcworkspace` files are intentionally gitignored and
 
 1. Fork the repository and create a focused branch from `main`.
 2. Reproduce the problem or agree on the proposed behavior.
-3. Add or update tests in `Targets/FoundationChatKit/Tests/` whenever logic changes.
+3. Add or update tests in `Targets/FoundationChatKit/Tests/` whenever logic changes, or in `Targets/EmberScope/Tests/` for inspector changes.
 4. Implement the change behind the existing provider, session, embedder, or persistence seams.
 5. Regenerate the project if the file graph changed.
 6. Run the relevant tests and both app builds.
@@ -66,6 +66,13 @@ xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
   -destination 'platform=macOS' test 2>&1 | tail -40
 ```
 
+The EmberScope inspector is a separate framework with its own suite and scheme:
+
+```bash
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScope \
+  -destination 'platform=macOS' test 2>&1 | tail -20
+```
+
 Keep both app targets green:
 
 ```bash
@@ -74,6 +81,14 @@ xcodebuild -workspace Ember.xcworkspace -scheme Ember \
 
 xcodebuild -workspace Ember.xcworkspace -scheme Ember \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -10
+```
+
+Build Release once as well — it is the only build that proves the `#if DEBUG` gating around every
+EmberScope surface still compiles:
+
+```bash
+xcodebuild -workspace Ember.xcworkspace -scheme Ember \
+  -configuration Release -destination 'platform=macOS' build 2>&1 | tail -10
 ```
 
 The expected test result is `** TEST SUCCEEDED **`.
@@ -115,6 +130,7 @@ Treat prompts, replies, memories, titles, and extracted facts as sensitive user 
 - Do not add telemetry or upload logs.
 - Prefer metadata such as lengths, counts, and stable error categories over content.
 - Do not add new `privacy: .public` interpolation for user-derived strings.
+- EmberScope records everything in memory only, logs metadata-only to the unified log by default, and is surfaced from the app exclusively behind `#if DEBUG`. Keep all three properties: no disk or network writes, no content in the log unless the developer opts in, and no inspector surface in a Release build (the framework stays linked, but disabled it captures nothing). `EmberScope.note` text is the one string metadata-only mode does not redact, so a note must never carry user content.
 - Redact any log excerpt before posting it publicly.
 - If your work touches the existing verbose memory diagnostics, move it toward explicit debug gating or private/redacted interpolation.
 
@@ -137,8 +153,9 @@ Treat prompts, replies, memories, titles, and extracted facts as sensitive user 
 - [ ] The change has a focused purpose and references an issue or design discussion when appropriate.
 - [ ] New behavior is covered by tests, or the PR explains why tests do not apply.
 - [ ] `tuist generate --no-open` was rerun after file additions or deletions.
-- [ ] The `FoundationChatKit` test suite succeeds.
+- [ ] The `FoundationChatKit` test suite succeeds, and the `EmberScope` suite too when the inspector changed.
 - [ ] The macOS app builds.
+- [ ] The macOS app builds in **Release** (proves the `#if DEBUG` gating still compiles).
 - [ ] The iOS Simulator app builds.
 - [ ] Real-device/model behavior was verified when the change depends on it.
 - [ ] User-facing or architectural documentation was updated.

@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import EmberScope
 
 /// Generates a short conversation title via guided generation, in a throwaway session so it
 /// never pollutes the chat transcript. Returns nil on any failure (caller falls back to the
@@ -13,8 +14,8 @@ enum ConversationTitler {
 
     @MainActor
     static func generate(from seed: TitleSeed) async -> String? {
-        let session = LanguageModelSession(
-            instructions: "You write very short, descriptive chat titles. No quotes, 3-5 words.")
+        let session = EmberScope.session(
+            instructions: "You write very short, descriptive chat titles. No quotes, 3-5 words.", label: "title")
         let prompt = """
             Summarize this conversation's topic as a 3-5 word title.
             User: \(seed.userText)

@@ -25,6 +25,13 @@ public protocol ChatSessionHandle: AnyObject {
     func prewarm()
     /// Encodes the live session for fast/faithful resume (nil if unsupported).
     func encodedTranscript() -> Data?
+    /// EmberScope session id for this handle, so app-level notes can attach to the right session.
+    /// nil when the provider is not inspected (mocks).
+    var inspectionID: UUID? { get }
+}
+
+public extension ChatSessionHandle {
+    var inspectionID: UUID? { nil }
 }
 
 @MainActor

@@ -46,7 +46,7 @@ let project = Project(
             // swift-transformers vends a single umbrella `Transformers` library product, so the
             // narrower `.external(name: "Tokenizers")` does not resolve — Tuist matches externals by
             // product name. Only the tokenizer is used; see README for the dormant-Hub caveat.
-            dependencies: [.external(name: "Transformers")]
+            dependencies: [.external(name: "Transformers"), .target(name: "EmberScope")]
         ),
         .target(
             name: "FoundationChatKitTests",
@@ -55,7 +55,34 @@ let project = Project(
             bundleId: "dev.iosunpi.ember.kit.tests",
             deploymentTargets: deployment,
             sources: ["Targets/FoundationChatKit/Tests/**"],
-            dependencies: [.target(name: "FoundationChatKit")]
+            // The EmberScope integration test imports EmberScope directly.
+            dependencies: [.target(name: "FoundationChatKit"), .target(name: "EmberScope")]
+        ),
+        .target(
+            name: "EmberScope",
+            destinations: appDestinations,
+            product: .framework,
+            bundleId: "dev.iosunpi.emberscope",
+            deploymentTargets: deployment,
+            sources: ["Targets/EmberScope/Sources/**"],
+            settings: .settings(base: [
+                // Keep the library adoptable by Swift-6-strict hosts even though this repo builds in
+                // Swift 5 language mode (warnings here, errors there) — and make that real by failing
+                // the build on any warning, so the promise cannot rot one warning at a time.
+                "SWIFT_STRICT_CONCURRENCY": "complete",
+                "SWIFT_TREAT_WARNINGS_AS_ERRORS": "YES",
+            ])
+        ),
+        .target(
+            name: "EmberScopeTests",
+            destinations: appDestinations,
+            product: .unitTests,
+            bundleId: "dev.iosunpi.emberscope.tests",
+            deploymentTargets: deployment,
+            sources: ["Targets/EmberScope/Tests/**"],
+            dependencies: [.target(name: "EmberScope")],
+            // The suite exercises the same concurrency surface a Swift-6 host would.
+            settings: .settings(base: ["SWIFT_STRICT_CONCURRENCY": "complete"])
         ),
         .target(
             name: "Ember",
@@ -72,7 +99,7 @@ let project = Project(
             ]),
             sources: ["Targets/Ember/Sources/**"],
             resources: emberResources,
-            dependencies: [.target(name: "FoundationChatKit")]
+            dependencies: [.target(name: "FoundationChatKit"), .target(name: "EmberScope")]
         ),
         .target(
             name: "EmberTests",

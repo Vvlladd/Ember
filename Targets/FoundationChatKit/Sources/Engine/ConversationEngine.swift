@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import EmberScope
 import Observation
 import os
 
@@ -128,6 +129,11 @@ public final class ConversationEngine {
             maxHits: settings.memoryInjectionMaxHits,
             maxCharsPerHit: settings.memoryInjectionMaxCharsPerHit)
         pendingMemoryBlock = memoryBlock
+        if memoryRetrieval != nil {
+            EmberScope.note(hits.isEmpty ? "retrieval: no memory hits"
+                                         : "retrieval: \(hits.count) hit(s) injected (\(memoryBlock.count) chars)",
+                            session: session.inspectionID)
+        }
         // Inline `"\(block)\n\(prompt)"` join — canonical equivalent is
         // `MemoryContextBlock.augment(prompt:with:...)` (same join). Keep the two sites in sync.
         let augmented = memoryBlock.isEmpty ? prompt : "\(memoryBlock)\n\(prompt)"
@@ -166,6 +172,15 @@ public final class ConversationEngine {
                 if attempt == 0, Self.isRetryable(chatError) {
                     attempt += 1
                     EmberLog.turn.notice("performTurn: transient error \(String(describing: chatError), privacy: .public) — retrying once")
+                    // A note carries counts and CATEGORIES, never a message: `String(describing:)` on a
+                    // ChatError can interpolate the model's own text, and notes are not redacted.
+                    let category: String
+                    switch chatError {
+                    case .generationInterrupted: category = "generationInterrupted"
+                    case .rateLimited: category = "rateLimited"
+                    default: category = "transient"
+                    }
+                    EmberScope.note("retrying after transient error: \(category)", session: session.inspectionID)
                     if assistantIndex < messages.count { messages[assistantIndex].text = "" }
                     continue
                 }
@@ -222,9 +237,15 @@ public final class ConversationEngine {
     /// reply headroom) would exceed the window, so the reply always has room.
     private func compactIfNeeded(for prompt: String) async {
         let projected = budget.usedTokens + calculator.estimate(prompt) + settings.reservedReplyTokens
-        guard projected > provider.maxContextTokens, session.contextEntries.count > 1 else { return }
-        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider,
+        guard projected > provider.maxContextTokens else { return }
+        // `contextEntries` re-maps the whole transcript on every read — take it ONCE, and note the
+        // count we actually compacted rather than re-reading after the await.
+        let before = session.contextEntries
+        guard before.count > 1 else { return }
+        let condensed = await ContextCompactor.compact(before, using: provider,
                                                        onPreference: onCompactionPreference)
+        EmberScope.note("compaction (proactive): \(before.count) entries → \(condensed.count) seeded entries",
+                        session: session.inspectionID)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Older turns were summarized to make room.",
@@ -236,8 +257,11 @@ public final class ConversationEngine {
     }
 
     private func recoverFromOverflow() async {
-        let condensed = await ContextCompactor.compact(session.contextEntries, using: provider,
+        let before = session.contextEntries      // read once; see compactIfNeeded
+        let condensed = await ContextCompactor.compact(before, using: provider,
                                                        onPreference: onCompactionPreference)
+        EmberScope.note("compaction (overflow): \(before.count) entries → \(condensed.count) seeded entries",
+                        session: session.inspectionID)
         session = provider.makeSession(settings: settings, tools: tools, seeding: condensed)
         let notice = ChatMessage(role: .systemNotice,
                                  text: "Context window was full — older turns were compacted to keep the chat going.",

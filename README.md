@@ -42,6 +42,7 @@ Most chat apps hide two important decisions: **what the model remembers** and **
 | Token usage | Live estimates while typing/streaming, followed by asynchronous exact counts when available |
 | Persistence | SwiftData rows plus a best-effort encoded transcript for fast resume |
 | Networking | No backend and no network entitlement |
+| Debugging | EmberScope: an in-app inspector for every Foundation Models session — context window, tools, timings, errors (DEBUG builds) |
 | Testability | Model and embedder protocol seams with deterministic test doubles |
 
 ## A private turn, end to end
@@ -101,9 +102,32 @@ Everything competes for the model's context window: instructions, tool definitio
 
 The gauge labels estimated and exact states honestly and groups usage into instructions, tools, memory, history, and reserved reply space.
 
+## EmberScope — inspect the model like netfox inspects the network
+
+Ember ships with [EmberScope](Targets/EmberScope/README.md), a drop-in debug inspector for Apple Foundation Models. Shake the device (or press ⌘⇧E on the Mac) to see every session Ember created—the chat session and the hidden title, summary, and extraction sessions—with the exact context window the model receives, with per-entry token cost, every request's options and timing, every tool call, and every error with Apple's debug description.
+
+| Context window per session | Ordered event timeline |
+|---|---|
+| ![EmberScope's session detail showing the session header, 559 of 4,096 context tokens used with an estimated badge, tool definitions counted inside the instructions entry, and the start of Ember's registered tools list](docs/screenshots/emberscope-session-detail.png) | ![EmberScope's timeline listing a context snapshot, a failed request at 157 ms, a classified model-assets-unavailable error, a stream start, a retrieval note, and a prewarm](docs/screenshots/emberscope-timeline.png) |
+
+*The two totals differ because they count different text at different moments: Ember's gauge adds one budget line per tool from `Toolbox.accountingMetadata`'s digest (`name + description + String(describing:)` of the `GenerationSchema`) alongside Ember's own context entries (its projection of the conversation), while EmberScope folds the tool definitions into the instructions entry — where the model actually receives them — using the schema encoded as JSON, and counts only what the SDK's transcript holds right now.*
+
+```swift
+#if DEBUG
+EmberScope.start()
+#endif
+let session = EmberScope.session(tools: tools, instructions: instructions, label: "chat")  // same API as LanguageModelSession
+ContentView().emberScope()
+```
+
+It is in-memory only, metadata-only in the unified log, and inert outside DEBUG. The framework itself is still linked into Release builds — Ember's provider creates every session through it unconditionally — but with recording disabled it is a pass-through: nothing is captured, logged or retained. See the [library README](Targets/EmberScope/README.md) for the API and how to use it in your own app.
+
+> [!NOTE]
+> The screenshots above come from an iPad Pro simulator, which reports the model as available but ships no on-device model assets—so the recorded turn ends in the classified `assetsUnavailable` error rather than a reply. Successful generation, streaming token telemetry, and live tool-call timing are covered by unit tests with mocks; they have not yet been exercised end to end on Apple Intelligence hardware.
+
 ## Architecture
 
-Ember has two Tuist targets. The app target is deliberately thin; decision logic lives in a framework behind protocols so it can be tested without an Apple Intelligence device.
+Ember has three Tuist targets. The app target is deliberately thin; decision logic lives in a framework behind protocols so it can be tested without an Apple Intelligence device. EmberScope is a third, self-contained framework: the app and the engine framework both link it, and it depends on neither, so it can be lifted into another project unchanged.
 
 [![High-level architecture of the Ember SwiftUI app, FoundationChatKit framework, production adapters, and test seams](docs/diagrams/rendered/ember-system-architecture.png)](docs/diagrams/rendered/ember-system-architecture.png)
 
@@ -120,6 +144,7 @@ Public projects earn trust by being explicit about boundaries:
 - EmbeddingGemma weights are **not committed**. Contributors fetch them locally and any distribution that bundles them must comply with the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) and [Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy).
 - Ember uses only the local tokenizer API from `swift-transformers`, but that package exposes one umbrella `Transformers` product and therefore links a dormant Hugging Face Hub client. Ember does not call that client and has no network entitlement.
 - Developer diagnostics currently write some short user-derived strings to Apple's local Unified Logging with public visibility. Do not share raw logs containing personal data; production distribution should gate or redact this instrumentation.
+- EmberScope keeps everything it captures in memory, never writes to disk, and logs metadata only unless a developer opts into content logging. Its metadata-only mode (`captureContent: false`) redacts prompts, outputs, tool arguments, transcript text and error strings; the one thing it keeps verbatim is `EmberScope.note` text, which is a developer annotation and must never carry user content. Every app-side EmberScope surface is compiled out of Release builds.
 
 ## Requirements
 
@@ -158,7 +183,14 @@ xcodebuild -workspace Ember.xcworkspace -scheme FoundationChatKit \
   -destination 'platform=macOS' test 2>&1 | tail -40
 ```
 
-The required result is `** TEST SUCCEEDED **`. SourceKit diagnostics are unreliable without the generated module graph; `xcodebuild` is the source of truth.
+The EmberScope inspector has its own suite and its own scheme:
+
+```bash
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScope \
+  -destination 'platform=macOS' test 2>&1 | tail -20
+```
+
+The required result is `** TEST SUCCEEDED **` for both. SourceKit diagnostics are unreliable without the generated module graph; `xcodebuild` is the source of truth.
 
 ## Optional: EmbeddingGemma
 
@@ -189,8 +221,9 @@ Ember/
 ├── CONTRIBUTING.md             # contribution workflow and PR checklist
 ├── LICENSE                     # MIT license for the source code
 ├── Project.swift               # Tuist targets and resources
-├── Targets/
+├── Targets/                    # three Tuist targets
 │   ├── FoundationChatKit/      # engine, memory, tools, persistence, tests
+│   ├── EmberScope/             # Foundation Models inspector: Sources, Tests, README
 │   └── Ember/                  # SwiftUI app and resources
 ├── docs/
 │   ├── ARCHITECTURE.md         # deeper GitHub-rendered diagrams
@@ -209,6 +242,7 @@ Built today:
 - Hybrid conversation-memory RAG with automatic fact extraction and deduplication.
 - Proactive compaction, overflow recovery, and transient-error retry.
 - Optional EmbeddingGemma Core ML embeddings with versioned-vector migration.
+- The EmberScope inspector (Phase 7), as a self-contained framework and wired through Ember's own sessions.
 
 Good next contributions include attachments, multilingual retrieval, iCloud/CloudKit sync, richer compaction, moving embedding inference off the main actor, and production-hardening diagnostic privacy.
 
