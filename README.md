@@ -120,14 +120,14 @@ let session = EmberScope.session(tools: tools, instructions: instructions, label
 ContentView().emberScope()
 ```
 
-It is in-memory only, metadata-only in the unified log, and inert outside DEBUG. The framework itself is still linked into Release builds — Ember's provider creates every session through it unconditionally — but with recording disabled it is a pass-through: nothing is captured, logged or retained. See the [library README](Targets/EmberScope/README.md) for the API and how to use it in your own app.
+It is in-memory only, metadata-only in the unified log, and inert outside DEBUG. The framework itself is still linked into Release builds — Ember's provider creates every session through it unconditionally — but with recording disabled it is a pass-through: nothing is captured, logged or retained. See the [library README](Targets/EmberScope/README.md) for the API and how to use it in your own app. To see it working without reading Ember first, run the `EmberScopeExample` scheme: a minimal chat app that depends on EmberScope alone, with a Scenarios menu that drives every inspector path — tool calls, cancellation, guided generation, tool failures and context overflow — and names what each one should put in the console ([how to run](Targets/EmberScope/README.md#example-app)).
 
 > [!NOTE]
 > The screenshots above come from an iPad Pro simulator, which reports the model as available but ships no on-device model assets—so the recorded turn ends in the classified `assetsUnavailable` error rather than a reply. Successful generation, streaming token telemetry, and live tool-call timing are covered by unit tests with mocks; they have not yet been exercised end to end on Apple Intelligence hardware.
 
 ## Architecture
 
-Ember has three Tuist targets. The app target is deliberately thin; decision logic lives in a framework behind protocols so it can be tested without an Apple Intelligence device. EmberScope is a third, self-contained framework: the app and the engine framework both link it, and it depends on neither, so it can be lifted into another project unchanged.
+Ember has four Tuist targets. The app target is deliberately thin; decision logic lives in a framework behind protocols so it can be tested without an Apple Intelligence device. EmberScope is a third, self-contained framework: the app and the engine framework both link it, and it depends on neither, so it can be lifted into another project unchanged. The fourth, `EmberScopeExample`, is EmberScope's example host — it links EmberScope and nothing else, which is what proves the library drops into any Foundation Models app.
 
 [![High-level architecture of the Ember SwiftUI app, FoundationChatKit framework, production adapters, and test seams](docs/diagrams/rendered/ember-system-architecture.png)](docs/diagrams/rendered/ember-system-architecture.png)
 
@@ -221,9 +221,10 @@ Ember/
 ├── CONTRIBUTING.md             # contribution workflow and PR checklist
 ├── LICENSE                     # MIT license for the source code
 ├── Project.swift               # Tuist targets and resources
-├── Targets/                    # three Tuist targets
+├── Targets/                    # four Tuist targets
 │   ├── FoundationChatKit/      # engine, memory, tools, persistence, tests
 │   ├── EmberScope/             # Foundation Models inspector: Sources, Tests, README
+│   ├── EmberScopeExample/      # minimal chat app hosting EmberScope (library only)
 │   └── Ember/                  # SwiftUI app and resources
 ├── docs/
 │   ├── ARCHITECTURE.md         # deeper GitHub-rendered diagrams

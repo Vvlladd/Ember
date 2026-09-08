@@ -118,6 +118,11 @@ enum TranscriptRendering {
             switch segment {
             case .text(let t): return t.content
             case .structure(let s): return s.content.jsonString
+            #if compiler(>=6.4)
+            // Xcode 27 SDK (Swift 6.4): image/file attachments in a prompt. The library targets OS 26,
+            // so the payload type is not usable here; render a marker until the API is final.
+            case .attachment: return "[attachment]"
+            #endif
             @unknown default: return String(describing: segment)
             }
         }.joined()
@@ -132,7 +137,14 @@ enum TranscriptRendering {
     }
 
     static func samplingDescription(_ options: GenerationOptions) -> String {
-        guard let sampling = options.sampling else { return "default" }
+        // Xcode 27 (Swift 6.4) renamed `sampling` to `samplingMode` and deprecates the old spelling; this
+        // target builds warnings-as-errors, so use the name the compiler in use knows.
+        #if compiler(>=6.4)
+        let sampling = options.samplingMode
+        #else
+        let sampling = options.sampling
+        #endif
+        guard let sampling else { return "default" }
         return sampling == .greedy ? "greedy" : "random"
     }
 
@@ -190,6 +202,13 @@ public extension TranscriptSnapshot {
                 return ScopeEntry(id: o.id, kind: .toolOutput, text: text,
                                   structuredJSON: TranscriptRendering.structuredJSON(of: o.segments),
                                   toolName: o.toolName, tokens: estimator.estimate(text))
+            #if compiler(>=6.4)
+            // Xcode 27 SDK (Swift 6.4): model reasoning entries. Shown as a response-kind entry with the
+            // SDK's description until the API is final and gets its own kind.
+            case .reasoning:
+                let text = String(describing: entry)
+                return ScopeEntry(id: entry.id, kind: .response, text: text, tokens: estimator.estimate(text))
+            #endif
             @unknown default:
                 let text = String(describing: entry)
                 return ScopeEntry(id: entry.id, kind: .response, text: text, tokens: estimator.estimate(text))
