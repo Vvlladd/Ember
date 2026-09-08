@@ -9,6 +9,19 @@ import ProjectDescription
 let deploymentFloor: SettingsDictionary = [
     "MACOSX_DEPLOYMENT_TARGET": "13.0",
     "IPHONEOS_DEPLOYMENT_TARGET": "16.0",
+    // Xcode's "Update to recommended settings" check flags the generated dependency projects (e.g.
+    // swift-collections) without these; Tuist uses `.essential` defaults for SPM targets. Mirrors
+    // `xcodeRecommended` in Project.swift.
+    "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
+    "ENABLE_MODULE_VERIFIER": "YES",
+    "ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS": "YES",
+    "LOCALIZATION_PREFERS_STRING_CATALOGS": "YES",
+    "SWIFT_EMIT_LOC_STRINGS": "YES",
+    "DEAD_CODE_STRIPPING": "YES",
+    "CLANG_ENABLE_OBJC_WEAK": "YES",
+    "ENABLE_STRICT_OBJC_MSGSEND": "YES",
+    "GCC_NO_COMMON_BLOCKS": "YES",
+    "CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER": "YES",
 ]
 let packageSettings = PackageSettings(
     productTypes: [:],

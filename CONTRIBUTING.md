@@ -83,15 +83,34 @@ xcodebuild -workspace Ember.xcworkspace -scheme Ember \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -10
 ```
 
+Keep EmberScope's example host building too — it is the app that proves the library needs nothing else:
+
+```bash
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample \
+  -destination 'platform=macOS' build 2>&1 | tail -10
+
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build 2>&1 | tail -10
+```
+
 Build Release once as well — it is the only build that proves the `#if DEBUG` gating around every
 EmberScope surface still compiles:
 
 ```bash
 xcodebuild -workspace Ember.xcworkspace -scheme Ember \
   -configuration Release -destination 'platform=macOS' build 2>&1 | tail -10
+
+xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample \
+  -configuration Release -destination 'platform=macOS' build 2>&1 | tail -10
 ```
 
 The expected test result is `** TEST SUCCEEDED **`.
+
+The root `Package.swift` is how other apps install EmberScope, so keep it building as a plain Swift package too:
+
+```bash
+swift build && swift test
+```
 
 > [!IMPORTANT]
 > SourceKit/editor diagnostics can report false missing-module or missing-type errors when the generated module graph is unavailable. `xcodebuild` is the source of truth.

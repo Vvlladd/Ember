@@ -10,3 +10,4 @@ Targets/Ember/Resources/Models/
 
 # superpowers SDD scratch (ledgers, briefs, review packages)
 .superpowers/
+.swiftpm/
