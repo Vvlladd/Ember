@@ -120,6 +120,8 @@ let session = EmberScope.session(tools: tools, instructions: instructions, label
 ContentView().emberScope()
 ```
 
+**Use it in your own app.** Add `https://github.com/Vvlladd/Ember` as a Swift package (File ▸ Add Package Dependencies… in Xcode, or `.package(url:)` in your manifest) and pick the `EmberScope` library — the root `Package.swift` exposes only the inspector, not the Ember app. Details and the four-line integration are in the [library README](Targets/EmberScope/README.md).
+
 It is in-memory only, metadata-only in the unified log, and inert outside DEBUG. The framework itself is still linked into Release builds — Ember's provider creates every session through it unconditionally — but with recording disabled it is a pass-through: nothing is captured, logged or retained. See the [library README](Targets/EmberScope/README.md) for the API and how to use it in your own app. To see it working without reading Ember first, run the `EmberScopeExample` scheme: a minimal chat app that depends on EmberScope alone, with a Scenarios menu that drives every inspector path — tool calls, cancellation, guided generation, tool failures and context overflow — and names what each one should put in the console ([how to run](Targets/EmberScope/README.md#example-app)).
 
 > [!NOTE]

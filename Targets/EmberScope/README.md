@@ -232,28 +232,28 @@ replaced by `SystemLanguageModel.tokenCount(for:)` values asynchronously where a
 
 ## Using EmberScope in your own project
 
-EmberScope is developed inside the [Ember](../../README.md) repository as the Tuist target `EmberScope`
-(sources in `Targets/EmberScope/Sources`, tests in `Targets/EmberScope/Tests`). It does not depend on any
-other Ember target. The folder is laid out as a Swift package; to publish it standalone, copy
-`Targets/EmberScope` into its own repository and add this manifest:
+Add this repository as a Swift package — the same way you add netfox:
+
+- **Xcode:** File ▸ Add Package Dependencies… ▸ paste `https://github.com/Vvlladd/Ember` ▸ add the `EmberScope` library to your app target.
+- **Package.swift:**
 
 ```swift
-// swift-tools-version: 6.0
-import PackageDescription
-
-let package = Package(
-    name: "EmberScope",
-    platforms: [.iOS("26.0"), .macOS("26.0")],
-    products: [.library(name: "EmberScope", targets: ["EmberScope"])],
-    targets: [
-        .target(name: "EmberScope", path: "Sources/EmberScope"),
-        .testTarget(name: "EmberScopeTests", dependencies: ["EmberScope"], path: "Tests/EmberScopeTests"),
-    ]
-)
+dependencies: [
+    .package(url: "https://github.com/Vvlladd/Ember", branch: "main"),   // or from: "0.1.0" once tagged
+],
+targets: [
+    .target(name: "MyApp", dependencies: [.product(name: "EmberScope", package: "Ember")]),
+]
 ```
 
-The manifest is not checked in here, because Tuist treats any nested `Package.swift` as a project manifest.
-The extraction was smoke-tested exactly that way — `Targets/EmberScope` copied out with the manifest above, then `swift build && swift test` — on macOS 26 / Xcode 26.6: both succeed with zero warnings in Swift 6 language mode, all 112 tests passing.
+Then `import EmberScope` and follow the Quick start above. Requirements: iOS / iPadOS / macOS 26, Xcode 26.
+
+How this works: the repository's root `Package.swift` exposes **only** the `EmberScope` library (sources in
+`Targets/EmberScope/Sources`, tests in `Targets/EmberScope/Tests`); the Ember app itself is a Tuist project and is
+not part of the package, so a consumer builds nothing but the inspector. The package builds in Swift 6 language
+mode with zero warnings — verify with `swift build && swift test` at the repository root (all 112 tests run there
+too). EmberScope depends on no other Ember target, so the same folder can still be lifted into its own repository
+later if a smaller clone is ever wanted.
 
 Inside this repository, the suite runs as its own scheme:
 

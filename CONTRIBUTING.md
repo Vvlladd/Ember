@@ -106,6 +106,12 @@ xcodebuild -workspace Ember.xcworkspace -scheme EmberScopeExample \
 
 The expected test result is `** TEST SUCCEEDED **`.
 
+The root `Package.swift` is how other apps install EmberScope, so keep it building as a plain Swift package too:
+
+```bash
+swift build && swift test
+```
+
 > [!IMPORTANT]
 > SourceKit/editor diagnostics can report false missing-module or missing-type errors when the generated module graph is unavailable. `xcodebuild` is the source of truth.
 
